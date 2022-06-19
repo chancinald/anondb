@@ -76,6 +76,7 @@ export class SQLiteConnector extends DB {
     const table = this.schema[collection]
     if (!table) throw new Error(`Unable to find table ${collection} in schema`)
     const docs = [_doc].flat()
+    if (docs.length === 0) return []
     const { sql, query } = createSql(table, docs)
     try {
       const { changes } = await this.db.run(sql)

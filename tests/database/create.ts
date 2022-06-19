@@ -43,6 +43,10 @@ export default function(this: { db: DB }) {
     }
   })
 
+  test('should execute empty clause', async () => {
+    await this.db.create('TableThree', [])
+  })
+
   test('should catch creation type errors', async () => {
     const table = 'Table7'
     try {

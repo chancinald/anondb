@@ -262,4 +262,37 @@ export default function(this: { db: DB }) {
       db.create(table, [])
     })
   })
+
+  test('should not error on empty update', async () => {
+    const table = 'TableThree'
+    await this.db.transaction(db => {
+      db.create(table, {
+        id: 'test0',
+      })
+      db.update(table, {
+        where: {
+          id: 'test0',
+        },
+        update: {}
+      })
+    })
+  })
+
+  test('should not error on empty upsert', async () => {
+    const table = 'TableThree'
+    await this.db.transaction(db => {
+      db.create(table, {
+        id: 'test0',
+      })
+      db.upsert(table, {
+        where: {
+          id: 'test0'
+        },
+        update: {},
+        create: {
+          id: 'test0',
+        }
+      })
+    })
+  })
 }

@@ -225,6 +225,7 @@ export class SQLiteMemoryConnector extends DB {
         const table = this.schema[collection]
         if (!table)
           throw new Error(`Unable to find table ${collection} in schema`)
+        if (Object.keys(options.update).length === 0) return
         sqlOperations.push(updateSql(table, options))
       },
       delete: (collection: string, options: DeleteManyOptions) => {

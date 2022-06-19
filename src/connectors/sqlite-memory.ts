@@ -217,6 +217,7 @@ export class SQLiteMemoryConnector extends DB {
         if (!table)
           throw new Error(`Unable to find table ${collection} in schema`)
         const docs = [_doc].flat()
+        if (docs.length === 0) return
         const { sql } = createSql(table, docs)
         sqlOperations.push(sql)
       },

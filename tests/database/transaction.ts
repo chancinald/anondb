@@ -255,4 +255,11 @@ export default function(this: { db: DB }) {
     })
     await transactionPromise
   })
+
+  test('should not error on empty create', async () => {
+    const table = 'TableThree'
+    await this.db.transaction(db => {
+      db.create(table, [])
+    })
+  })
 }

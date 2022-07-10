@@ -18,7 +18,10 @@ import { validateDocuments, matchDocument } from '../helpers/memory'
 import { loadIncluded } from '../helpers/shared'
 import { execAndCallback } from '../helpers/callbacks'
 
-const DB_NAME = 'zkopru'
+type Config = {
+  version: number
+  name: string
+}
 
 export class IndexedDBConnector extends DB {
   db?: IDBPDatabase<any>
@@ -32,10 +35,21 @@ export class IndexedDBConnector extends DB {
     this.schema = schema
   }
 
-  static async create(tables: TableData[], version = 1) {
+  static async create(tables: TableData[], _config: number | Config = 1) {
     const schema = constructSchema(tables)
     const connector = new this(schema)
-    connector.db = await openDB(DB_NAME, version, {
+    const config = {
+      name: 'anondb',
+      version: 1,
+    } as Config
+    if (typeof _config === 'number') {
+      config.version = _config
+    } else if (typeof _config === 'object') {
+      Object.assign(config, _config)
+    } else {
+      throw new Error('No config specified')
+    }
+    connector.db = await openDB(config.name, config.version, {
       /**
        * If an index is changed (e.g. same keys different "unique" value) the
        * index will not be updated. If such a case occurs the name should be

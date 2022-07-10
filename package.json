@@ -13,9 +13,10 @@
     "strip-vendor": "cat ./dist/connectors/sqlite.d.ts | tail -n +2 | tee ./dist/connectors/sqlite.d.ts > /dev/null",
     "clean": "tsc --build tsconfig.build.json --clean && shx rm -rf coverage *.log junit.xml dist && jest --clearCache",
     "test": "sh scripts/test.sh",
-    "test:trace": "LOG_LEVEL=trace PRINT_LOG=true yarn test",
+    "test:trace": "LOG_LEVEL=trace PRINT_LOG=true npm run test",
     "coverage": "sh scripts/test.sh --coverage",
-    "badge": "lcov-badge-generator ./coverage/lcov.info -o coverage/lcov-report/badge.svg"
+    "badge": "lcov-badge-generator ./coverage/lcov.info -o coverage/lcov-report/badge.svg",
+    "upload": "node scripts/uploadCoverage.js"
   },
   "dependencies": {
     "async-lock": "^1.2.11",
@@ -35,10 +36,12 @@
     "fake-indexeddb": "^3.1.2",
     "jest": "^26.0.0",
     "lcov-badge-generator": "^1.0.5",
+    "node-fetch": "2",
     "prettier": "^2.4.1",
     "shx": "^0.3.3",
     "ts-jest": "^26.0.0",
     "ts-node": "^10.4.0",
-    "typescript": "^4.4.4"
+    "typescript": "^4.4.4",
+    "web3.storage": "^4.3.0"
   }
 }

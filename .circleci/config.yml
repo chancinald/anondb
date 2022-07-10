@@ -21,7 +21,13 @@ jobs:
           command: npm ci
       - run:
           name: Test
-          command: npm t
+          command: |
+            npm i jest-junit
+            npm test -- --ci --runInBand --reporters=default --reporters=jest-junit
+          environment:
+            JEST_JUNIT_OUTPUT_DIR: ./reports/
+      - store_test_results:
+          path: ./reports/
   test_and_upload:
     machine:
       image: ubuntu-2004:202010-01
@@ -32,10 +38,15 @@ jobs:
           command: npm ci
       - run:
           name: Test
-          command: npm run coverage && npm run badge
+          command: |
+            npm i jest-junit
+            npm run coverage -- --ci --runInBand --reporters=default --reporters=jest-junit
+            npm run badge
+      - store_test_results:
+          path: ~/reports
       - run:
-          name: Coverage
-          command: npx tubs upload ./coverage/lcov-report
+          name: Upload Coverage
+          command: npm run upload
       - run:
           name: Badge Purge
           command: npx camo-purge --repository https://github.com/jchancehud/anondb

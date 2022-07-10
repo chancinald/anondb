@@ -21,6 +21,13 @@ export default function(this: { db: DB }) {
     {
       const row = await this.db.findOne(table, {
         where: { optionalField: 'test' },
+        orderBy: { id: 'asc', optionalField: undefined as any },
+      })
+      assert.equal(row.id, 'test0')
+    }
+    {
+      const row = await this.db.findOne(table, {
+        where: { optionalField: 'test' },
         orderBy: { id: 'desc' },
       })
       assert.equal(row.id, 'test9')

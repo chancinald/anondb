@@ -225,6 +225,7 @@ export function findManySql(
   const orderBy =
     options.orderBy && Object.keys(options.orderBy).length > 0
       ? ` ORDER BY ${Object.keys(options.orderBy)
+          .filter(key => typeof (options.orderBy || {})[key] === 'string')
           .map(key => {
             const val = (options.orderBy || {})[key]
             return `"${key}" ${val.toUpperCase()}`

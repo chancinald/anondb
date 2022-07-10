@@ -145,6 +145,9 @@ export class IndexedDBConnector extends DB {
     return this.lock.acquire('read', async () =>
       this._findMany(collection, options),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   async _findMany(
@@ -408,6 +411,9 @@ export class IndexedDBConnector extends DB {
     return this.lock.acquire('write', async () =>
       this._update(collection, options),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   async _update(
@@ -443,6 +449,9 @@ export class IndexedDBConnector extends DB {
     return this.lock.acquire('write', async () =>
       this._upsert(collection, options),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   async _upsert(
@@ -462,6 +471,9 @@ export class IndexedDBConnector extends DB {
     return this.lock.acquire('write', async () =>
       this._delete(collection, options),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   async _delete(
@@ -499,6 +511,9 @@ export class IndexedDBConnector extends DB {
     return this.lock.acquire('write', async () =>
       this._transaction(operation, cb),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   async _transaction(

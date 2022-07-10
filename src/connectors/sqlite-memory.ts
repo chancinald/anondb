@@ -57,6 +57,9 @@ export class SQLiteMemoryConnector extends DB {
     return this.lock.acquire('write', async () =>
       this._create(collection, _doc),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   private async _create(collection: string, _doc: any | any): Promise<any> {
@@ -80,6 +83,9 @@ export class SQLiteMemoryConnector extends DB {
     return this.lock.acquire('read', async () =>
       this._findOne(collection, options),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   async _findOne(collection: string, options: FindOneOptions) {
@@ -94,6 +100,9 @@ export class SQLiteMemoryConnector extends DB {
     return this.lock.acquire('read', async () =>
       this._findMany(collection, options),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   async _findMany(collection: string, options: FindManyOptions) {
@@ -140,6 +149,9 @@ export class SQLiteMemoryConnector extends DB {
 
   async count(collection: string, where: WhereClause) {
     return this.lock.acquire('read', async () => this._count(collection, where))
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   async _count(collection: string, where: WhereClause) {
@@ -154,6 +166,9 @@ export class SQLiteMemoryConnector extends DB {
     return this.lock.acquire('write', async () =>
       this._update(collection, options),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   private async _update(collection: string, options: UpdateOptions) {
@@ -170,6 +185,9 @@ export class SQLiteMemoryConnector extends DB {
     return this.lock.acquire('write', async () =>
       this._upsert(collection, options),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   async _upsert(collection: string, options: UpsertOptions) {
@@ -184,6 +202,9 @@ export class SQLiteMemoryConnector extends DB {
     return this.lock.acquire('write', async () =>
       this._deleteMany(collection, options),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   private async _deleteMany(collection: string, options: DeleteManyOptions) {
@@ -198,6 +219,9 @@ export class SQLiteMemoryConnector extends DB {
     return this.lock.acquire('write', async () =>
       this._transaction(operation, cb),
     )
+      .catch(err => {
+        throw new Error(`anondb error: ${err}`)
+      })
   }
 
   // Allow only updates, upserts, deletes, and creates

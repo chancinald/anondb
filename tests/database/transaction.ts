@@ -166,7 +166,7 @@ export default function(this: { db: DB }) {
     try {
       await transactionPromise
     } catch (err) {
-      assert.equal(err.toString(), 'Error: test error')
+      assert.equal(err.toString(), 'Error: anondb error: Error: test error')
     }
     assert(!committed)
     assert(completed)
@@ -191,7 +191,7 @@ export default function(this: { db: DB }) {
     try {
       await transactionPromise
     } catch (err) {
-      assert.equal(err.toString(), 'Error: test error')
+      assert.equal(err.toString(), 'Error: anondb error: Error: test error')
     }
     assert(completed)
   })

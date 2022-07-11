@@ -219,6 +219,43 @@ export default function(this: { db: DB }) {
     assert(completed)
   })
 
+  test('should catch error in onCommit callback', async () => {
+    const table = 'TableThree'
+    try {
+      await this.db.transaction(
+        async db => {
+          db.onCommit(async () => {
+            throw new Error('IGNORE - onCommit test error - IGNORE')
+          })
+          db.create(table, {
+            id: 'test',
+          })
+          await new Promise(r => setTimeout(r, 100))
+        }
+      )
+      assert(false)
+    } catch (err) {
+      // eslint-disable-next-line no-empty
+    }
+  })
+
+  test('should catch error in error onError callback', async () => {
+    try {
+      await this.db.transaction(
+        async db => {
+          db.onError(async () => {
+            throw new Error('IGNORE - onError test error - IGNORE')
+          })
+          await new Promise(r => setTimeout(r, 100))
+          throw new Error('test error')
+        }
+      )
+      assert(false)
+    } catch (err) {
+      // eslint-disable-next-line no-empty
+    }
+  })
+
   test('should fail to register non-function callbacks', async () => {
     const table = 'TableThree'
     const transactionPromise = this.db.transaction(db => {

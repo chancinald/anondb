@@ -163,7 +163,6 @@ export class IndexedDBConnector extends DB {
      * */
     if (!this.db) throw new Error('DB is not initialized')
     // scan if there's a complex query
-    const start = +new Date()
     if (
       // typeof options.orderBy === 'object' ||
       Object.keys(options.where).length === 0

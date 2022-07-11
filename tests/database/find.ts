@@ -50,6 +50,20 @@ export default function(this: { db: DB }) {
     assert.strictEqual(r, null)
   })
 
+  test('should catch find one errors', async () => {
+    const table = 'TableThree'
+    try {
+      await this.db.findOne(table, {
+        where: {
+          invalidField: 0
+        }
+      })
+      assert(false)
+    } catch (err) {
+      assert(/Error: anondb error: Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
+    }
+  })
+
   test('should find many', async () => {
     const table = 'TableTwo'
     for (let x = 0; x < 10; x++) {
@@ -79,6 +93,20 @@ export default function(this: { db: DB }) {
         docs2[x].counterField > docs2[x + 1].counterField,
         'Documents incorrectly ordered',
       )
+    }
+  })
+
+  test('should catch find many errors', async () => {
+    const table = 'TableThree'
+    try {
+      await this.db.findMany(table, {
+        where: {
+          invalidField: 0
+        }
+      })
+      assert(false)
+    } catch (err) {
+      assert(/Error: anondb error: Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
     }
   })
 
@@ -200,6 +228,18 @@ export default function(this: { db: DB }) {
     assert.equal(await this.db.count(table, { optionalField: true }), 3)
     assert.equal(await this.db.count(table, { optionalField: false }), 0)
     assert.equal(await this.db.count(table, { optionalField: null }), 1)
+  })
+
+  test('should catch error counting documents', async () => {
+    const table = 'TableThree'
+    try {
+      await this.db.count(table, {
+        invalidField: 0
+      })
+      assert(false)
+    } catch (err) {
+      assert(/Error: anondb error: Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
+    }
   })
 
   test('should handle object type', async () => {

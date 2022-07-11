@@ -83,4 +83,19 @@ export default function(this: { db: DB }) {
       assert.equal(count, 0)
     }
   })
+
+  test('should catch delete errors', async () => {
+    const table = 'Table7'
+    try {
+      await this.db.delete(table, {
+        where: {
+          invalidField: 0,
+        },
+      })
+      assert(false)
+    } catch (err) {
+      assert(/Error: anondb error: Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
+    }
+
+  })
 }

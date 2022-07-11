@@ -6,7 +6,7 @@ module.exports = {
   testRegex: '(/tests/.*.(test|spec)).(jsx?|tsx?)$',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   collectCoverage: true,
-  coveragePathIgnorePatterns: ['(tests/.*.mock).(jsx?|tsx?)$', 'src/block-cache.ts'],
+  coveragePathIgnorePatterns: ['<rootDir>/tests'],
   verbose: true,
   testEnvironment: 'node',
   setupFiles: ['fake-indexeddb/auto'],

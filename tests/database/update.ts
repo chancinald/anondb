@@ -47,6 +47,64 @@ export default function(this: { db: DB }) {
     }
   })
 
+  test('should perform update (undefined/null)', async () => {
+    const table = 'Table6'
+    await this.db.create(table, [
+      {
+        id: 0,
+        boolField: true,
+        stringField: 'test',
+        objectField: { test: 'obj' },
+      },
+      {
+        id: 1,
+        boolField: true,
+        stringField: 'test',
+        objectField: { test: 'obj' },
+      },
+    ])
+    {
+      const changes = await this.db.update(table, {
+        where: { id: null },
+        update: {
+          objectField: {
+            newProp: 'exists',
+          },
+          boolField: false,
+          stringField: 'newTest',
+        },
+      })
+      assert.equal(changes, 0)
+    }
+    {
+      const changes = await this.db.update(table, {
+        where: { id: undefined},
+        update: {
+          objectField: {
+            newProp: 'exists',
+          },
+          boolField: false,
+          stringField: 'newTest',
+        },
+      })
+      assert.equal(changes, 2)
+    }
+    {
+      const row = await this.db.findOne(table, { where: { id: 0 } })
+      assert.equal(typeof row.objectField, 'object')
+      assert.equal(row.objectField.newProp, 'exists')
+      assert.equal(row.boolField, false)
+      assert.equal(row.stringField, 'newTest')
+    }
+    {
+      const row = await this.db.findOne(table, { where: { id: 1 } })
+      assert.equal(typeof row.objectField, 'object')
+      assert.equal(row.objectField.newProp, 'exists')
+      assert.equal(row.boolField, false)
+      assert.equal(row.stringField, 'newTest')
+    }
+  })
+
   test('should catch update errors', async () => {
     const table = 'Table6'
     try {

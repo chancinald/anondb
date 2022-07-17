@@ -37,6 +37,7 @@ export function whereToSql(table: SchemaTable, doc: any = {}, sqlOnly = false) {
   if (Object.keys(doc).length === 0) return ''
   const sql = Object.keys(doc)
     .map(key => {
+      if (doc[key] === undefined) return
       if (key === 'OR' || key === 'AND') return
       const rowDef = table.rowsByName[key]
       if (!rowDef)

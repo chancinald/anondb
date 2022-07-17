@@ -28,6 +28,42 @@ export default function(this: { db: DB }) {
     assert.equal(count, 1)
   })
 
+  test('should delete (undefined/null)', async () => {
+    const table = 'Table7'
+    await this.db.create(table, {
+      id: 0,
+      boolField: true,
+      stringField: 'test',
+      objectField: {},
+    })
+    await this.db.create(table, {
+      id: 1,
+      boolField: true,
+      stringField: 'test',
+      objectField: {},
+    })
+    {
+      const deleted = await this.db.delete(table, {
+        where: {
+          id: null,
+        },
+      })
+      assert.equal(deleted, 0)
+      const count = await this.db.count(table, {})
+      assert.equal(count, 2)
+    }
+    {
+      const deleted = await this.db.delete(table, {
+        where: {
+          id: undefined,
+        },
+      })
+      assert.equal(deleted, 2)
+      const count = await this.db.count(table, {})
+      assert.equal(count, 0)
+    }
+  })
+
   test('should delete many', async () => {
     const table = 'Table7'
     await this.db.create(table, {

@@ -163,6 +163,13 @@ export class IndexedDBConnector extends DB {
      * */
     if (!this.db) throw new Error('DB is not initialized')
     // scan if there's a complex query
+    // remove any keys that are undefined
+    // TODO: be careful here, the object is being mutated
+    for (const key of Object.keys(options.where)) {
+      if (typeof options.where[key] === 'undefined') {
+        delete options.where[key]
+      }
+    }
     if (
       // typeof options.orderBy === 'object' ||
       Object.keys(options.where).length === 0

@@ -38,6 +38,20 @@ export default function(this: { db: DB }) {
       })
       assert.strictEqual(row, null)
     }
+    {
+      const row = await this.db.findOne(table, {
+        where: { id: undefined },
+        orderBy: { id: 'asc' },
+      })
+      assert.equal(row && row.id, 'test0')
+    }
+    {
+      const row = await this.db.findOne(table, {
+        where: { id: null },
+        orderBy: { id: 'asc' },
+      })
+      assert.equal(row, null)
+    }
   })
 
   test('should return null if not found', async () => {
@@ -71,6 +85,24 @@ export default function(this: { db: DB }) {
         counterField: x,
       })
       await new Promise(r => setTimeout(r, 10))
+    }
+    {
+      const docs = await this.db.findMany(table, {
+        where: {
+          counterField: undefined
+        },
+        orderBy: { id: 'asc' },
+      })
+      assert.equal(docs.length, 10)
+    }
+    {
+      const docs = await this.db.findMany(table, {
+        where: {
+          counterField: null
+        },
+        orderBy: { id: 'asc' },
+      })
+      assert.equal(docs.length, 0)
     }
     const docs = await this.db.findMany(table, {
       where: {},

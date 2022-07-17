@@ -56,6 +56,78 @@ export default function(this: { db: DB }) {
     assert.equal(rows[2].optionalField, 'exists')
   })
 
+  test('should execute transaction (undefined/null handling)', async () => {
+    const table = 'TableThree'
+    await this.db.transaction(db => {
+      db.create(table, [
+        {
+          id: 'test0',
+          optionalField: 'test'
+        },
+        {
+          id: 'test1',
+        },
+      ])
+      db.update(table, {
+        where: { optionalField: null },
+        update: { optionalField: 'exists' },
+      })
+    })
+    {
+      const rows = await this.db.findMany(table, {
+        where: {
+          optionalField: 'exists',
+        },
+      })
+      assert.equal(rows.length, 1)
+    }
+    await this.db.transaction(db => {
+      db.update(table, {
+        where: { optionalField: undefined },
+        update: { optionalField: 'exists' },
+      })
+    })
+    {
+      const rows = await this.db.findMany(table, {
+        where: {
+          optionalField: 'exists',
+        },
+      })
+      assert.equal(rows.length, 2)
+    }
+    await this.db.transaction(db => {
+      db.delete(table, {
+        where: { optionalField: undefined },
+      })
+    })
+    {
+      const rows = await this.db.findMany(table, {
+        where: {},
+      })
+      assert.equal(rows.length, 0)
+    }
+    await this.db.transaction(db => {
+      db.create(table, [
+        {
+          id: 'test0',
+          optionalField: 'test'
+        },
+        {
+          id: 'test1',
+        },
+      ])
+      db.delete(table, {
+        where: { optionalField: null },
+      })
+    })
+    {
+      const rows = await this.db.findMany(table, {
+        where: {},
+      })
+      assert.equal(rows.length, 1)
+    }
+  })
+
   test('should rollback transaction', async () => {
     const table = 'TableThree'
     try {

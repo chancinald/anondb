@@ -47,6 +47,21 @@ export default function(this: { db: DB }) {
     }
   })
 
+  test('should catch update errors', async () => {
+    const table = 'Table6'
+    try {
+      await this.db.update(table, {
+        where: { invalidField: 0 },
+        update: {
+          invalidField: 1
+        },
+      })
+      assert(false)
+    } catch (err) {
+      assert(/Error: anondb error: Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
+    }
+  })
+
   test('should perform upsert', async () => {
     const table = 'Table6'
     {
@@ -121,6 +136,24 @@ export default function(this: { db: DB }) {
         where: { id: 0 },
       })
       assert.equal(doc.boolField, true)
+    }
+  })
+
+  test('should catch upsert errors', async () => {
+    const table = 'Table6'
+    try {
+      await this.db.upsert(table, {
+        where: { invalidField: 0 },
+        create: {
+          invalidField: 1
+        },
+        update: {
+          invalidField: 1
+        },
+      })
+      assert(false)
+    } catch (err) {
+      assert(/Error: anondb error: Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
     }
   })
 }

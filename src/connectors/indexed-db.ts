@@ -163,7 +163,6 @@ export class IndexedDBConnector extends DB {
      * */
     if (!this.db) throw new Error('DB is not initialized')
     // scan if there's a complex query
-    const start = +new Date()
     if (
       // typeof options.orderBy === 'object' ||
       Object.keys(options.where).length === 0
@@ -171,6 +170,9 @@ export class IndexedDBConnector extends DB {
       return this.findUsingScan(collection, options, _tx)
     }
     for (const key of Object.keys(options.where)) {
+      if (key !== 'AND' && key !== 'OR' && !this.schema[collection]?.rowsByName[key]) {
+        throw new Error(`Unable to find row definition for key: "${key}"`)
+      }
       if (key === 'AND' || key === 'OR')
         return this.findUsingScan(collection, options, _tx)
       if (options.where[key] === undefined)
@@ -276,14 +278,6 @@ export class IndexedDBConnector extends DB {
         findMany: this._findMany.bind(this),
         table,
       })
-      if (+new Date() - start > 50 && typeof window !== 'undefined')
-        console.log(
-          'query length',
-          collection,
-          options.where,
-          options.include,
-          +new Date() - start,
-        )
       return finalResults
     }
     // no index supports the query, scan

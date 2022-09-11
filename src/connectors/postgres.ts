@@ -306,4 +306,13 @@ export class PostgresConnector extends DB {
   async close() {
     await this.db.end()
   }
+
+  async closeAndWipe() {
+    await this.transaction(db => {
+      for (const [table,] of Object.entries(this.schema)) {
+        db.delete(table, { where: {} })
+      }
+    })
+    await this.close()
+  }
 }

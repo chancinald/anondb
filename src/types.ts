@@ -117,6 +117,9 @@ export abstract class DB {
 
   // close the db and cleanup
   abstract close(): Promise<void>
+
+  // close the database handle and wipe the database
+  abstract closeAndWipe(): Promise<void>
 }
 
 // The object available in a transaction context

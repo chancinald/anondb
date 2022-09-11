@@ -306,6 +306,15 @@ export class SQLiteMemoryConnector extends DB {
     await this.db.close()
   }
 
+  async closeAndWipe() {
+    await this.transaction(db => {
+      for (const [table,] of Object.entries(this.schema)) {
+        db.delete(table as string, { where: {} })
+      }
+    })
+    await this.close()
+  }
+
   async createTables(tableData: TableData[]) {
     this.schema = constructSchema(tableData)
     const createTablesCommand = tableCreationSql(tableData)

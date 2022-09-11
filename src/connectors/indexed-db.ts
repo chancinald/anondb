@@ -1,6 +1,6 @@
 /* eslint-disable class-methods-use-this, no-underscore-dangle */
 import AsyncLock from 'async-lock'
-import { openDB, IDBPDatabase, IDBPTransaction } from 'idb'
+import { openDB, deleteDB, IDBPDatabase, IDBPTransaction } from 'idb'
 import {
   DB,
   FindOneOptions,
@@ -27,6 +27,10 @@ export class IndexedDBConnector extends DB {
   db?: IDBPDatabase<any>
 
   schema: Schema = {}
+  config: Config = {
+    name: 'anondb',
+    version: 1,
+  }
 
   lock = new AsyncLock({ maxPending: 100000 })
 
@@ -38,18 +42,14 @@ export class IndexedDBConnector extends DB {
   static async create(tables: TableData[], _config: number | Config = 1) {
     const schema = constructSchema(tables)
     const connector = new this(schema)
-    const config = {
-      name: 'anondb',
-      version: 1,
-    } as Config
     if (typeof _config === 'number') {
-      config.version = _config
+      connector.config.version = _config
     } else if (typeof _config === 'object') {
-      Object.assign(config, _config)
+      Object.assign(connector.config, _config)
     } else {
       throw new Error('No config specified')
     }
-    connector.db = await openDB(config.name, config.version, {
+    connector.db = await openDB(connector.config.name, connector.config.version, {
       /**
        * If an index is changed (e.g. same keys different "unique" value) the
        * index will not be updated. If such a case occurs the name should be
@@ -602,5 +602,15 @@ export class IndexedDBConnector extends DB {
   async close() {
     if (!this.db) throw new Error('DB is not initialized')
     this.db.close()
+  }
+
+  async closeAndWipe() {
+    if (!this.db) throw new Error('DB is not initialized')
+    this.db.close()
+    await deleteDB(this.config.name, {
+      blocked: () => {
+        throw new Error('Database wipe was blocked')
+      }
+    })
   }
 }

@@ -66,7 +66,9 @@ export function validateDocuments(table: SchemaTable, _docs: any | any[]) {
 // Matches without considering OR clauses
 function _matchDocument(where: WhereClause, doc: any) {
   for (const [key, val] of Object.entries(where)) {
-    if (typeof val === 'object' && !Array.isArray(val) && val !== null) {
+    if (typeof val === 'undefined') {
+      continue
+    } else if (typeof val === 'object' && !Array.isArray(val) && val !== null) {
       if (val.ne === null && (doc[key] === null || doc[key] === undefined)) {
         return false
       }

@@ -74,7 +74,7 @@ export default function(this: { db: DB }) {
       })
       assert(false)
     } catch (err) {
-      assert(/Error: anondb error: Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
+      assert(/Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
     }
   })
 
@@ -138,7 +138,7 @@ export default function(this: { db: DB }) {
       })
       assert(false)
     } catch (err) {
-      assert(/Error: anondb error: Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
+      assert(/Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
     }
   })
 
@@ -270,7 +270,7 @@ export default function(this: { db: DB }) {
       })
       assert(false)
     } catch (err) {
-      assert(/Error: anondb error: Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
+      assert(/Error: Unable to find row definition for key: "invalidField"/.test(err.toString()))
     }
   })
 

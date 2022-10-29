@@ -128,6 +128,38 @@ export default function(this: { db: DB }) {
     }
   })
 
+  test('should not execute write during transaction', async () => {
+    const table = 'TableThree'
+    let rs
+    const waitPromise = new Promise((_rs) => rs = _rs)
+    const txPromise = this.db.transaction(async db => {
+      db.create(table, [
+        {
+          id: 'test0',
+        },
+      ])
+      await waitPromise
+    })
+    const createPromise = this.db.create(table, { id: 'test1' })
+    await Promise.race([
+      new Promise(r => setTimeout(r, 2000)),
+      createPromise
+    ])
+    {
+      const docs = await this.db.findMany(table, { where: {} })
+      assert.equal(docs.length, 0)
+    }
+    rs()
+    await Promise.all([
+      createPromise,
+      txPromise
+    ])
+    {
+      const docs = await this.db.findMany(table, { where: {} })
+      assert.equal(docs.length, 2)
+    }
+  })
+
   test('should rollback transaction', async () => {
     const table = 'TableThree'
     try {

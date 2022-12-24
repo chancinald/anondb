@@ -63,7 +63,7 @@ export default function(this: { db: DB }) {
     try {
       await this.db.create(table, {
         id: 0,
-        boolField: 0,
+        boolField: 999,
         stringField: 'test',
         objectField: {},
       })

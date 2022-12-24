@@ -50,13 +50,17 @@ describe('sqlite tests', function(this: { db: DB }) {
             ['uniqueAndOptionalField', 'String', { unique: true, optional: true }],
             ['optionalField', 'String', { optional: true }],
             ['regularField', 'String'],
+            ['f1', 'Bool'],
+            ['f2', 'Int'],
           ],
         },
       ] as TableData[]
       const db = await SQLiteConnector.create(schema, dbPath)
       await db.create('TestTable', {
         uniqueField: '0',
-        regularField: 'hello'
+        regularField: 'hello',
+        f1: true,
+        f2: 2190
       })
       await db.close()
     }
@@ -74,6 +78,8 @@ describe('sqlite tests', function(this: { db: DB }) {
             ['uniqueField', 'String', { unique: true }],
             ['uniqueAndOptionalField', 'String', { unique: true, optional: true }],
             ['optionalField', 'String', { optional: true }],
+            ['f1', 'Bool'],
+            ['f2', 'Int'],
             {
               name: 'newField',
               type: 'String',

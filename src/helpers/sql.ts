@@ -27,6 +27,9 @@ export function parseType(type: string, value: any) {
   if (type === 'Bool' && typeof value === 'boolean') {
     return value ? 'true' : 'false'
   }
+  if (type === 'Bool' && value === 0 || value === 1) {
+    return value === 1 ? 'true' : 'false'
+  }
   if (type === 'Object' && typeof value === 'object') {
     return `'${escapeSingleQuotes(JSON.stringify(value))}'`
   }

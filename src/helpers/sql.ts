@@ -220,7 +220,7 @@ export function createSql(
 
 export function findManySql(
   table: SchemaTable,
-  options: FindManyOptions,
+  options: FindManyOptions & { offset?: number },
 ): string {
   const { where } = options
   const orderBy =
@@ -234,10 +234,11 @@ export function findManySql(
           .join(', ')}`
       : ''
   const limit = options.limit ? ` LIMIT ${options.limit} ` : ''
+  const offset = options.offset ? ` OFFSET ${options.offset} ` : ''
   return `SELECT * FROM "${table.name}" ${whereToSql(
     table,
     where,
-  )} ${orderBy} ${limit};`
+  )} ${orderBy} ${limit} ${offset};`
 }
 
 export function countSql(table: SchemaTable, where: WhereClause): string {

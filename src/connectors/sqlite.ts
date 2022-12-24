@@ -339,8 +339,114 @@ export class SQLiteConnector extends DB {
   }
 
   async createTables(tableData: TableData[]) {
-    this.schema = constructSchema(tableData)
+    const schema = constructSchema(tableData)
+    this.schema = schema
+    // if the database is empty just create the tables
     const createTablesCommand = tableCreationSql(tableData)
     await this.db.exec(createTablesCommand)
+
+    const readSchemaSql = `
+      SELECT m.name as tableName,
+        p.name as columnName,
+        p.type as columnType,
+        *
+      FROM sqlite_master m
+        LEFT OUTER JOIN pragma_table_info((m.name)) p
+        ON m.name <> p.name
+        WHERE m.type != 'index'
+        ;`
+    const rawSchema = await this.db.all(readSchemaSql).catch(console.error)
+    // construct a schema from this
+    const existingSchema = rawSchema.reduce((acc, obj) => {
+      const tableObj = acc[obj.tableName] ?? {
+        rowsByName: {},
+        rows: [],
+      }
+      const row = {
+        name: obj.columnName,
+        // unique: null,
+        optional: obj.notnull == 0,
+        // type:
+      }
+      tableObj.rowsByName[obj.columnName] = row
+      tableObj.rows.push(row)
+      return {
+        ...acc,
+        [obj.tableName]: tableObj
+      }
+    }, {})
+    const tablesNeedingMigration = [] as string[]
+    for (const table of Object.keys(schema)) {
+      const existingTable = existingSchema[table]
+      if (!existingTable) {
+        // if we don't have a table, we can simply create an empty one
+        // no migration needed
+        continue
+      }
+      for (const row of (schema[table] as any).rows) {
+        const existingRow = existingTable.rowsByName[row.name]
+        if (existingRow || typeof row.relation !== 'undefined') continue
+        if (!row.optional && typeof row.default === 'undefined') {
+          throw new Error(`Invalid migration, new row ${row.name} must be either optional, or have a default value`)
+        }
+        // otherwise we need to migrate
+        tablesNeedingMigration.push(table)
+      }
+    }
+    if (tablesNeedingMigration.length > 0) {
+      console.log(`Migrating ${tablesNeedingMigration.length} tables: ${tablesNeedingMigration.join(', ')}`)
+    }
+    for (const table of tablesNeedingMigration) {
+      const schemaTable = schema[table]
+      if (!schemaTable) throw new Error(`Unable to find schema table: ${table}`)
+      // do a migration
+      // make a new table and manually copy the contents from the old table
+      // then delete the old table and recreate using the contents from the new table
+      // then delete the new table
+      const tmpTableName = `migrate-${table}-${Math.floor(Math.random()*10000000)}`
+
+      const tmpTableData = tableData.find(({ name }) => name === table)
+      if (!tmpTableData) throw new Error(`Unable to find table data: "${table}"`)
+      Object.assign(tmpTableData, { name: tmpTableName })
+      await this.db.exec(tableCreationSql([
+        tmpTableData
+      ]))
+      const limit = 1000
+      let offset = 0
+      for (;;) {
+        // get a batch of models
+        const findSql = findManySql(schemaTable, {
+          where: {},
+          limit,
+          offset
+        })
+        const models = await this.db.all(findSql)
+        if (models.length === 0) break
+        offset += limit
+        const cleanedModels = models.map((model) => {
+          return Object.keys(model).reduce((acc, key) => {
+            if (!schemaTable.rowsByName[key]) return acc
+            return {
+              ...acc,
+              [key]: model[key],
+            }
+          }, {})
+        })
+        // insert them into the new table
+        const { sql, query } = createSql({
+          ...schemaTable,
+          name: tmpTableName,
+        }, cleanedModels)
+        const { changes } = await this.db.run(sql)
+        if (changes !== models.length) {
+          throw new Error('Failed to create document')
+        }
+      }
+      // now we've migrated
+      // 1. delete the old table
+      // 2. rename them tmp table
+      const sql = `DROP TABLE "${table}"; ALTER TABLE "${tmpTableName}" RENAME TO "${table}";`
+      await this.db.exec(sql)
+    }
   }
 }

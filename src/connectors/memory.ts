@@ -295,18 +295,18 @@ export class MemoryConnector extends DB {
       schema: this.schema,
       db: _structuredClone(this.db),
     } as any
+    txThis._delete = this._delete.bind(txThis)
+    txThis._create = this._create.bind(txThis)
+    txThis._update = this._update.bind(txThis)
+    txThis._upsert = this._upsert.bind(txThis)
+    txThis.findOne = this.findOne.bind(txThis)
+    txThis.findMany = this.findMany.bind(txThis)
+    txThis.uniqueRows = this.uniqueRows.bind(txThis)
+    txThis.uniqueRowKey = this.uniqueRowKey.bind(txThis)
+    txThis.checkForInvalidRows = this.checkForInvalidRows.bind(txThis)
     const tx = async () => {
       let promise = Promise.resolve()
       // deep copy the database for doing operations on
-      txThis._delete = this._delete.bind(txThis)
-      txThis._create = this._create.bind(txThis)
-      txThis._update = this._update.bind(txThis)
-      txThis._upsert = this._upsert.bind(txThis)
-      txThis.findOne = this.findOne.bind(txThis)
-      txThis.findMany = this.findMany.bind(txThis)
-      txThis.uniqueRows = this.uniqueRows.bind(txThis)
-      txThis.uniqueRowKey = this.uniqueRowKey.bind(txThis)
-      txThis.checkForInvalidRows = this.checkForInvalidRows.bind(txThis)
       const db = {
         delete: (collection: string, options: DeleteManyOptions) => {
           promise = promise.then(() => txThis._delete(collection, options))
@@ -336,9 +336,10 @@ export class MemoryConnector extends DB {
           onCompleteCallbacks.push(cb)
         },
       } as TransactionDB
-      const opPromise = Promise.resolve(operation(db))
-      await promise
-      await opPromise
+      await Promise.all([
+        Promise.resolve(operation(db)),
+        promise,
+      ])
       this.db = txThis.db
     }
     await execAndCallback(tx,

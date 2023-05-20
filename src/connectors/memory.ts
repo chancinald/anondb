@@ -304,21 +304,35 @@ export class MemoryConnector extends DB {
     txThis.uniqueRows = this.uniqueRows.bind(txThis)
     txThis.uniqueRowKey = this.uniqueRowKey.bind(txThis)
     txThis.checkForInvalidRows = this.checkForInvalidRows.bind(txThis)
+    let failed = false
+    let failedOperation
     const tx = async () => {
       let promise = Promise.resolve()
       // deep copy the database for doing operations on
       const db = {
         delete: (collection: string, options: DeleteManyOptions) => {
-          promise = promise.then(() => txThis._delete(collection, options))
+          promise = promise.then(() => txThis._delete(collection, options)).catch(() => {
+            failed = true
+            failedOperation = 'delete'
+          })
         },
         create: (collection: string, docs: any) => {
-          promise = promise.then(() => txThis._create(collection, docs))
+          promise = promise.then(() => txThis._create(collection, docs)).catch(() => {
+            failed = true
+            failedOperation = 'create'
+          })
         },
         update: (collection: string, options: UpdateOptions) => {
-          promise = promise.then(() => txThis._update(collection, options))
+          promise = promise.then(() => txThis._update(collection, options)).catch(() => {
+            failed = true
+            failedOperation = 'update'
+          })
         },
         upsert: (collection: string, options: UpsertOptions) => {
-          promise = promise.then(() => txThis._upsert(collection, options))
+          promise = promise.then(() => txThis._upsert(collection, options)).catch(() => {
+            failed = true
+            failedOperation = 'upsert'
+          })
         },
         onCommit: (cb: Function) => {
           if (typeof cb !== 'function')
@@ -336,21 +350,22 @@ export class MemoryConnector extends DB {
           onCompleteCallbacks.push(cb)
         },
       } as TransactionDB
-      await Promise.all([
-        Promise.resolve(operation(db)),
-        promise,
-      ])
+      await Promise.resolve(operation(db))
+      await promise
+      if (failed) throw new Error(`Transaction failed at operation "${failedOperation}"`)
       this.db = txThis.db
     }
-    await execAndCallback(tx,
+    onCompleteCallbacks.push(() => {
+      for (const key of Object.keys(txThis)) {
+        delete txThis[key]
+      }
+    })
+    await execAndCallback(
+      tx,
       () => ({
         onError: onErrorCallbacks,
         onSuccess: onCommitCallbacks,
-        onComplete: [...onCompleteCallbacks, () => {
-          for (const key of Object.keys(txThis)) {
-            delete txThis[key]
-          }
-        }]
+        onComplete: onCompleteCallbacks,
       })
     )
   }

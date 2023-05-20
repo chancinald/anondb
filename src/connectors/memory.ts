@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import AsyncLock from 'async-lock'
+import _structuredClone from '@ungap/structured-clone'
 import {
   DB,
   Schema,
@@ -290,76 +291,66 @@ export class MemoryConnector extends DB {
     const onCompleteCallbacks = [] as any[]
     if (onComplete) onCompleteCallbacks.push(onComplete)
 
-    let start: Function | undefined
-    let promise = new Promise(rs => {
-      start = rs
-    })
-    // deep copy the database for doing operations on
-    const tempDB = {
-      __uniques__: { ...this.db.__uniques__ },
-      __mark__: 'test'
-    }
-    for (const key of Object.keys(this.db)) {
-      if (key === '__uniques__') continue
-      tempDB[key] = []
-      for (const doc of this.db[key]) {
-        tempDB[key].push({ ...doc })
-      }
-    }
     const txThis = {
       schema: this.schema,
-      db: tempDB
+      db: _structuredClone(this.db),
     } as any
-    txThis._delete = this._delete.bind(txThis)
-    txThis._create = this._create.bind(txThis)
-    txThis._update = this._update.bind(txThis)
-    txThis._upsert = this._upsert.bind(txThis)
-    txThis.findOne = this.findOne.bind(txThis)
-    txThis.findMany = this.findMany.bind(txThis)
-    txThis.uniqueRows = this.uniqueRows.bind(txThis)
-    txThis.uniqueRowKey = this.uniqueRowKey.bind(txThis)
-    txThis.checkForInvalidRows = this.checkForInvalidRows.bind(txThis)
-    const db = {
-      delete: (collection: string, options: DeleteManyOptions) => {
-        promise = promise.then(() => txThis._delete(collection, options))
-      },
-      create: (collection: string, docs: any) => {
-        promise = promise.then(() => txThis._create(collection, docs))
-      },
-      update: (collection: string, options: UpdateOptions) => {
-        promise = promise.then(() => txThis._update(collection, options))
-      },
-      upsert: (collection: string, options: UpsertOptions) => {
-        promise = promise.then(() => txThis._upsert(collection, options))
-      },
-      onCommit: (cb: Function) => {
-        if (typeof cb !== 'function')
-          throw new Error('Non-function onCommit callback supplied')
-        onCommitCallbacks.push(cb)
-      },
-      onError: (cb: Function) => {
-        if (typeof cb !== 'function')
-          throw new Error('Non-function onError callback supplied')
-        onErrorCallbacks.push(cb)
-      },
-      onComplete: (cb: Function) => {
-        if (typeof cb !== 'function')
-          throw new Error('Non-function onComplete callback supplied')
-        onCompleteCallbacks.push(cb)
-      },
-    } as TransactionDB
-    await execAndCallback(
-      async function(this: any) {
-        await Promise.resolve(operation(db))
-        ;(start as Function)()
-        await promise
-        this.db = tempDB
-      }.bind(this),
-      {
+    const tx = async () => {
+      let promise = Promise.resolve()
+      // deep copy the database for doing operations on
+      txThis._delete = this._delete.bind(txThis)
+      txThis._create = this._create.bind(txThis)
+      txThis._update = this._update.bind(txThis)
+      txThis._upsert = this._upsert.bind(txThis)
+      txThis.findOne = this.findOne.bind(txThis)
+      txThis.findMany = this.findMany.bind(txThis)
+      txThis.uniqueRows = this.uniqueRows.bind(txThis)
+      txThis.uniqueRowKey = this.uniqueRowKey.bind(txThis)
+      txThis.checkForInvalidRows = this.checkForInvalidRows.bind(txThis)
+      const db = {
+        delete: (collection: string, options: DeleteManyOptions) => {
+          promise = promise.then(() => txThis._delete(collection, options))
+        },
+        create: (collection: string, docs: any) => {
+          promise = promise.then(() => txThis._create(collection, docs))
+        },
+        update: (collection: string, options: UpdateOptions) => {
+          promise = promise.then(() => txThis._update(collection, options))
+        },
+        upsert: (collection: string, options: UpsertOptions) => {
+          promise = promise.then(() => txThis._upsert(collection, options))
+        },
+        onCommit: (cb: Function) => {
+          if (typeof cb !== 'function')
+            throw new Error('Non-function onCommit callback supplied')
+          onCommitCallbacks.push(cb)
+        },
+        onError: (cb: Function) => {
+          if (typeof cb !== 'function')
+            throw new Error('Non-function onError callback supplied')
+          onErrorCallbacks.push(cb)
+        },
+        onComplete: (cb: Function) => {
+          if (typeof cb !== 'function')
+            throw new Error('Non-function onComplete callback supplied')
+          onCompleteCallbacks.push(cb)
+        },
+      } as TransactionDB
+      const opPromise = Promise.resolve(operation(db))
+      await promise
+      await opPromise
+      this.db = txThis.db
+    }
+    await execAndCallback(tx,
+      () => ({
         onError: onErrorCallbacks,
         onSuccess: onCommitCallbacks,
-        onComplete: onCompleteCallbacks,
-      }
+        onComplete: [...onCompleteCallbacks, () => {
+          for (const key of Object.keys(txThis)) {
+            delete txThis[key]
+          }
+        }]
+      })
     )
   }
 

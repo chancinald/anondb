@@ -19,6 +19,7 @@
     "upload": "node scripts/uploadCoverage.js"
   },
   "dependencies": {
+    "@ungap/structured-clone": "^1.2.0",
     "async-lock": "^1.2.11",
     "idb": "^6.0.0",
     "nanoid": "^3.1.30",

@@ -12,7 +12,7 @@ describe('postgres tests', function(this: any) {
   beforeEach(async () => {
     this.db = await PostgresConnector.create(
       testSchema,
-      'postgres://postgres:password@localhost:5432',
+      'postgres://postgres:password@127.0.0.1:5432',
     )
     for (const { name } of testSchema) {
       await this.db.delete(name, {

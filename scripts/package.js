@@ -23,4 +23,15 @@ fs.writeFileSync(
 *.swp
   `)
 
+try {
+  fs.rmSync(path.join(__dirname, '../dist/tests'), { recursive: true})
+} catch (_) {}
 
+const distSrc = path.join(__dirname, '../dist/src')
+if (fs.existsSync(distSrc)) {
+  const files = fs.readdirSync(distSrc)
+  for (const file of files) {
+    fs.renameSync(path.join(distSrc, file), path.join(__dirname, '../dist', file))
+  }
+  fs.rmSync(distSrc, { recursive: true})
+}

@@ -1,4 +1,4 @@
-# anonDB <a href="https://app.circleci.com/pipelines/github/vimwitch/anondb" target="_blank">![build-badge](https://img.shields.io/circleci/build/github/vimwitch/anondb?token=9c37b99e7b34a165ae1f3e0c6ea4c5acead2db40)</a> <a href="https://storage.jchancehud.workers.dev/anondb" target="_blank">![coverage-badge](https://storage.jchancehud.workers.dev/anondb/badge.svg)</a>
+# anonDB <a href="https://app.circleci.com/pipelines/github/vimwitch/anondb" target="_blank">![build-badge](https://img.shields.io/circleci/build/github/vimwitch/anondb)</a> <a href="https://storage.jchancehud.workers.dev/anondb" target="_blank">![coverage-badge](https://storage.jchancehud.workers.dev/anondb/badge.svg)</a>
 
 A generic interface for data storage. Supported databases:
 - SQLite

@@ -1,9 +1,10 @@
+use anyhow::Result;
 use redb::TableDefinition;
 
 use crate::*;
 
 #[test]
-fn open_and_insert() -> anyhow::Result<()> {
+fn open_and_insert() -> Result<()> {
     const TEST_TABLE: TableDefinition<DynValue, DynValue> = TableDefinition::new("test_table");
 
     let db =
@@ -17,6 +18,6 @@ fn open_and_insert() -> anyhow::Result<()> {
         )?;
     }
     let journal = tx.commit()?;
-    assert_eq!(journal.len(), 2);
+    assert_eq!(journal.len(), 3);
     Ok(())
 }

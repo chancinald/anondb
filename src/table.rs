@@ -1,3 +1,4 @@
+use anyhow::Result;
 use redb::*;
 use serde::Serialize;
 
@@ -5,7 +6,7 @@ use super::TransactionOperations;
 
 pub struct JournaledTable<'a, K>
 where
-    K: Key + Serialize + 'static,
+    K: Key + Send + Sync + Serialize + 'static,
     for<'b> K::SelfType<'b>: ToOwned<Owned = K>,
 {
     table: Table<'a, K, K>,
@@ -14,7 +15,7 @@ where
 
 impl<'a, K> JournaledTable<'a, K>
 where
-    K: Key + Serialize + 'static,
+    K: Key + Send + Sync + Serialize + 'static,
     for<'b> K::SelfType<'b>: ToOwned<Owned = K>,
 {
     pub fn new(
@@ -37,13 +38,11 @@ where
         // TODO: return a result here
         // actually we want to match on the error above and not even try to journal
         // if the insert succeeds and the journal errors we... crash? error?
-        self.journal_channel
-            .send(TransactionOperations::Insert(
-                name,
-                key.to_owned(),
-                value.to_owned(),
-            ))
-            .unwrap();
+        self.journal_channel.send(TransactionOperations::Insert(
+            name,
+            key.to_owned(),
+            value.to_owned(),
+        ))?;
         Ok(out)
     }
 }

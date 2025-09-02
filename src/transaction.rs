@@ -1,3 +1,4 @@
+use anyhow::Result;
 use redb::*;
 use serde::Serialize;
 
@@ -6,7 +7,7 @@ use super::table::JournaledTable;
 
 pub struct JournaledTransaction<K>
 where
-    K: Key + Clone + Serialize + 'static,
+    K: Key + Send + Sync + Clone + Serialize + 'static,
     for<'b> K::SelfType<'b>: ToOwned<Owned = K>,
 {
     tx: WriteTransaction,
@@ -18,9 +19,14 @@ where
 
 impl<'a, K> JournaledTransaction<K>
 where
-    K: Key + Clone + Serialize + 'static,
+    K: Key + Send + Sync + Clone + Serialize + 'static,
     for<'b> K::SelfType<'b>: ToOwned<Owned = K>,
 {
+    /// Opens a new journaled write transaction.
+    pub fn begin(db: Database) -> Result<Self> {
+        Ok(Self::new(db.begin_write()?))
+    }
+
     pub fn new(tx: WriteTransaction) -> Self {
         Self {
             tx,
@@ -28,17 +34,13 @@ where
         }
     }
 
-    pub fn open_table(
-        &self,
-        definition: TableDefinition<K, K>,
-    ) -> Result<JournaledTable<K>, TableError> {
+    pub fn open_table(&self, definition: TableDefinition<K, K>) -> Result<JournaledTable<K>> {
         let table = self.tx.open_table(definition)?;
         self.journal_channel
             .0
             .send(TransactionOperations::OpenTable(
                 definition.name().to_string(),
-            ))
-            .unwrap();
+            ))?;
         Ok(JournaledTable::new(table, self.journal_channel.0.clone()))
     }
 
@@ -46,7 +48,8 @@ where
         &'txn self,
         definition: MultimapTableDefinition<K, K>,
     ) -> Result<MultimapTable<'txn, K, K>, TableError> {
-        self.tx.open_multimap_table(definition)
+        let table = self.tx.open_multimap_table(definition)?;
+        unimplemented!()
     }
 
     pub fn rename_table(
@@ -77,21 +80,27 @@ where
     }
 
     pub fn list_tables(&self) -> Result<impl Iterator<Item = UntypedTableHandle> + '_> {
-        self.tx.list_tables()
+        let tables = self.tx.list_tables()?;
+        Ok(tables)
     }
 
     pub fn list_multimap_tables(
         &self,
     ) -> Result<impl Iterator<Item = UntypedMultimapTableHandle> + '_> {
-        self.tx.list_multimap_tables()
+        let tables = self.tx.list_multimap_tables()?;
+        Ok(tables)
     }
 
-    pub fn commit(self) -> Result<Vec<TransactionOperations<K>>, CommitError> {
+    pub fn commit(self) -> Result<Vec<TransactionOperations<K>>> {
         self.tx.commit()?;
+        self.journal_channel
+            .0
+            .send(TransactionOperations::Commit())?;
         Ok(self.journal_channel.1.drain().collect())
     }
 
-    pub fn abort(self) -> Result {
-        self.tx.abort()
+    pub fn abort(self) -> Result<()> {
+        self.tx.abort()?;
+        Ok(())
     }
 }

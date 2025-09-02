@@ -19,6 +19,7 @@ pub enum TransactionOperations<K: redb::Key + 'static> {
     OpenTable(String),
     OpenMultimapTable(String),
     Insert(String, K, K),
+    Commit(),
 }
 
 /// Each variant needs to be explicitly keyed to an underlying value. This is necessary to preserve

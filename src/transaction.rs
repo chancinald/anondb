@@ -1,27 +1,18 @@
 use anyhow::Result;
 use redb::*;
-use serde::Serialize;
 
 use super::TransactionOperations;
 use super::table::JournaledTable;
 
-pub struct JournaledTransaction<K>
-where
-    K: Key + Send + Sync + Clone + Serialize + 'static,
-    for<'b> K::SelfType<'b>: ToOwned<Owned = K>,
-{
+pub struct JournaledTransaction {
     tx: WriteTransaction,
     journal_channel: (
-        flume::Sender<TransactionOperations<K>>,
-        flume::Receiver<TransactionOperations<K>>,
+        flume::Sender<TransactionOperations>,
+        flume::Receiver<TransactionOperations>,
     ),
 }
 
-impl<'a, K> JournaledTransaction<K>
-where
-    K: Key + Send + Sync + Clone + Serialize + 'static,
-    for<'b> K::SelfType<'b>: ToOwned<Owned = K>,
-{
+impl<'a> JournaledTransaction {
     /// Opens a new journaled write transaction.
     pub fn begin(db: Database) -> Result<Self> {
         Ok(Self::new(db.begin_write()?))
@@ -34,7 +25,10 @@ where
         }
     }
 
-    pub fn open_table(&self, definition: TableDefinition<K, K>) -> Result<JournaledTable<K>> {
+    pub fn open_table<K: Key + 'static, V: Value + 'static>(
+        &self,
+        definition: TableDefinition<K, V>,
+    ) -> Result<JournaledTable<K, V>> {
         let table = self.tx.open_table(definition)?;
         self.journal_channel
             .0
@@ -44,7 +38,7 @@ where
         Ok(JournaledTable::new(table, self.journal_channel.0.clone()))
     }
 
-    pub fn open_multimap_table<'txn>(
+    pub fn open_multimap_table<'txn, K: Key + 'static, V: Value + 'static>(
         &'txn self,
         definition: MultimapTableDefinition<K, K>,
     ) -> Result<MultimapTable<'txn, K, K>, TableError> {
@@ -91,11 +85,11 @@ where
         Ok(tables)
     }
 
-    pub fn commit(self) -> Result<Vec<TransactionOperations<K>>> {
-        self.tx.commit()?;
+    pub fn commit(self) -> Result<Vec<TransactionOperations>> {
         self.journal_channel
             .0
             .send(TransactionOperations::Commit())?;
+        self.tx.commit()?;
         Ok(self.journal_channel.1.drain().collect())
     }
 

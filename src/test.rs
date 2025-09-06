@@ -3,6 +3,28 @@ use anyhow::Result;
 use crate::*;
 
 #[test]
+fn open_and_find_one() -> Result<()> {
+    let db = Journal::in_memory(None)?;
+    db.insert("table", &"key1".to_string(), &"test_value_1".to_string())?;
+    db.insert("table", &"key2".to_string(), &"test_value_2".to_string())?;
+
+    let record = db
+        .find_one::<String, String, _>("table", |key, value| {
+            if value.ends_with("2") {
+                Some((key, value))
+            } else {
+                None
+            }
+        })?
+        .expect("did not find record");
+
+    assert_eq!(record.0, "key2");
+    assert_eq!(record.1, "test_value_2");
+
+    Ok(())
+}
+
+#[test]
 fn open_and_insert() -> Result<()> {
     let db = Journal::in_memory(None)?;
     db.insert("test2", &"test_key".to_string(), &"test_value".to_string())?;

@@ -73,14 +73,14 @@ impl Journal {
                         value_bytes,
                     } => {
                         if let Some(table) = tables_by_name.get_mut(table_name) {
-                            table.insert_bytes(key_bytes.clone(), value_bytes.clone())?;
+                            table.insert_bytes(key_bytes, value_bytes)?;
                         } else {
                             anyhow::bail!("table {table_name} is not open");
                         }
                     }
                     TransactionOperation::Remove(table_name, key_bytes) => {
                         if let Some(table) = tables_by_name.get_mut(table_name) {
-                            table.remove_bytes(key_bytes.clone())?;
+                            table.remove_bytes(key_bytes.into())?;
                         } else {
                             anyhow::bail!("table {table_name} is not open");
                         }
@@ -120,11 +120,10 @@ impl Journal {
             read.open_table(TableDefinition::<Bytes, Bytes>::new(JOURNAL_TABLE))
         {
             if let Some(bytes) = state_table
-                .get(JOURNAL_STATE_KEY)
+                .get(Bytes::from(JOURNAL_STATE_KEY))
                 .expect("failed to read open journal state table")
             {
-                Ok(rmp_serde::from_slice(bytes.value())
-                    .expect("failed to parse value for journal state key"))
+                Ok(bytes.value().parse::<JournalState>()?)
             } else {
                 Ok(JournalState::default())
             }
@@ -151,7 +150,7 @@ impl Journal {
         let mut table = tx.open_table(table_name)?;
 
         let out = if let Some(old_val) = table.insert(key, value)? {
-            Some(rmp_serde::from_slice::<V>(old_val.value())?)
+            Some(old_val.value().parse()?)
         } else {
             None
         };
@@ -161,6 +160,28 @@ impl Journal {
         Ok((out, tx.commit()?))
     }
 
+    pub fn find_one<K, V, S>(&self, table_name: &str, selectors: S) -> Result<Option<(K, V)>>
+    where
+        K: serde::Serialize + for<'de> serde::Deserialize<'de>,
+        V: serde::Serialize + for<'de> serde::Deserialize<'de>,
+        S: Fn(K, V) -> Option<(K, V)>,
+    {
+        let read = self.db.begin_read()?;
+        let table = read.open_table(TableDefinition::<Bytes, Bytes>::new(table_name))?;
+        let mut range = table.range::<Bytes>(..)?;
+        while let Some(item) = range.next() {
+            let item = item?;
+            println!("aklshfksfh");
+            let key = item.0.value().parse()?;
+            let value = item.1.value().parse()?;
+            let out = selectors(key, value);
+            if out.is_some() {
+                return Ok(out);
+            }
+        }
+        Ok(None)
+    }
+
     pub fn get<K, V>(&self, table_name: &str, key: &K) -> Result<Option<V>>
     where
         K: serde::Serialize,
@@ -168,9 +189,8 @@ impl Journal {
     {
         let read = self.db.begin_read()?;
         let table = read.open_table(TableDefinition::<Bytes, Bytes>::new(table_name))?;
-        let key_bytes = rmp_serde::to_vec(key)?;
-        if let Some(val) = table.get(key_bytes.as_slice())? {
-            Ok(rmp_serde::from_slice(val.value())?)
+        if let Some(val) = table.get(Bytes::encode(key)?)? {
+            Ok(val.value().parse()?)
         } else {
             Ok(None)
         }

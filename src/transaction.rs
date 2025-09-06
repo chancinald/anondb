@@ -56,13 +56,13 @@ impl<'tx> JournaledTransaction<'tx> {
             tx.open_table(TableDefinition::<Bytes, Bytes>::new(JOURNAL_TABLE))?;
 
         journal_table.insert(
-            state.next_tx_index.to_le_bytes().as_slice(),
-            rmp_serde::to_vec(&operations)?.as_slice(),
+            Bytes::from(state.next_tx_index.to_le_bytes().to_vec()),
+            Bytes::encode(&operations)?,
         )?;
 
         state.next_tx_index += 1;
 
-        journal_table.insert(JOURNAL_STATE_KEY, rmp_serde::to_vec(&state)?.as_slice())?;
+        journal_table.insert(Bytes::from(JOURNAL_STATE_KEY), Bytes::encode(&state)?)?;
 
         drop(journal_table);
 

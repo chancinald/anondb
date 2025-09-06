@@ -5,18 +5,18 @@
 use serde::Deserialize;
 use serde::Serialize;
 
+mod bytes;
 mod journal;
 mod table;
 mod transaction;
 
+pub use bytes::Bytes;
 pub use journal::Journal;
 pub use table::JournaledTable;
 pub use transaction::JournaledTransaction;
 
-pub type Bytes = &'static [u8];
-
 const JOURNAL_TABLE: &str = "redb_journal";
-const JOURNAL_STATE_KEY: Bytes = "redb_journal_state".as_bytes();
+const JOURNAL_STATE_KEY: &'static [u8] = "redb_journal_state".as_bytes();
 
 #[cfg(test)]
 mod test;
@@ -36,11 +36,11 @@ pub enum TransactionOperation {
     /// Insert a value for key. Existing value is overwritten or (in multimap) expanded by concatenation
     Insert {
         table_name: String,
-        key_bytes: Vec<u8>,
-        value_bytes: Vec<u8>,
+        key_bytes: Bytes,
+        value_bytes: Bytes,
     },
     /// Remove all values associated with a key
-    Remove(String, Vec<u8>),
+    Remove(String, Bytes),
     /// Write the transaction. May optionally be final element in a transaction.
     /// Transactions without a `Commit` should not be persisted to the db.
     Commit,

@@ -20,19 +20,17 @@ impl<'tx> JournaledTable<'tx> {
 
     pub fn insert_bytes(
         &mut self,
-        key_bytes: Vec<u8>,
-        value_bytes: Vec<u8>,
+        key_bytes: &Bytes,
+        value_bytes: &Bytes,
     ) -> Result<Option<AccessGuard<Bytes>>> {
         let table_name = self.table.name().into();
 
-        let out = self
-            .table
-            .insert(key_bytes.as_slice(), value_bytes.as_slice())?;
+        let out = self.table.insert(key_bytes, value_bytes)?;
 
         self.tx.operate(TransactionOperation::Insert {
             table_name,
-            key_bytes,
-            value_bytes,
+            key_bytes: key_bytes.clone(),
+            value_bytes: value_bytes.clone(),
         })?;
 
         Ok(out)
@@ -40,19 +38,17 @@ impl<'tx> JournaledTable<'tx> {
 
     pub fn insert<K, V>(&mut self, key: &K, value: &V) -> Result<Option<AccessGuard<Bytes>>>
     where
-        K: serde::Serialize + ?Sized,
+        K: serde::Serialize,
         V: serde::Serialize + for<'de> serde::Deserialize<'de>,
     {
-        let key_bytes = rmp_serde::to_vec(key)?;
-        let value_bytes = rmp_serde::to_vec(value)?;
-        self.insert_bytes(key_bytes, value_bytes)
+        self.insert_bytes(&Bytes::encode(key)?, &Bytes::encode(value)?)
     }
 
-    pub fn remove_bytes(&mut self, key_bytes: Vec<u8>) -> Result<Option<AccessGuard<Bytes>>> {
+    pub fn remove_bytes(&mut self, key_bytes: &Bytes) -> Result<Option<AccessGuard<Bytes>>> {
         let table_name = self.table.name().to_string();
-        let out = self.table.remove(key_bytes.as_slice())?;
+        let out = self.table.remove(key_bytes)?;
         self.tx
-            .operate(TransactionOperation::Remove(table_name, key_bytes))?;
+            .operate(TransactionOperation::Remove(table_name, key_bytes.clone()))?;
         Ok(out)
     }
 
@@ -60,7 +56,6 @@ impl<'tx> JournaledTable<'tx> {
     where
         S: serde::Serialize,
     {
-        let key_bytes = rmp_serde::to_vec(key)?;
-        self.remove_bytes(key_bytes)
+        self.remove_bytes(&Bytes::encode(key)?)
     }
 }

@@ -1,8 +1,0 @@
-dist
-.DS_Store
-*.tmp
-*.swp
-node_modules
-coverage
-*.tsbuildinfo
-reports/

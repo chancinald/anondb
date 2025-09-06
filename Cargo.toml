@@ -11,3 +11,5 @@ serde = { version = "1", features = ["derive"] }
 bincode = "1"
 flume = "0.11.1"
 anyhow = "1.0.99"
+rmp = "0.8.14"
+rmp-serde = "1.3.0"

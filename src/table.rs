@@ -1,59 +1,66 @@
 use anyhow::Result;
 use redb::*;
 
-use super::TransactionOperations;
+use crate::*;
 
-pub struct JournaledTable<'a, K, V>
-where
-    K: Key + 'static,
-    V: Value + 'static,
-{
-    table: Table<'a, K, V>,
-    journal_channel: flume::Sender<TransactionOperations>,
+pub struct JournaledTable<'tx> {
+    table: redb::Table<'tx, Bytes, Bytes>,
+    tx: &'tx JournaledTransaction<'tx>,
+    journal: &'tx Journal,
 }
 
-impl<'a, K, V> JournaledTable<'a, K, V>
-where
-    K: Key + 'static,
-    V: Value + 'static,
-{
+impl<'tx> JournaledTable<'tx> {
     pub fn new(
-        table: Table<'a, K, V>,
-        journal_channel: flume::Sender<TransactionOperations>,
+        table: Table<'tx, Bytes, Bytes>,
+        journal: &'tx Journal,
+        tx: &'tx JournaledTransaction<'tx>,
     ) -> Self {
-        Self {
-            table,
-            journal_channel,
-        }
+        Self { table, journal, tx }
     }
 
-    pub fn insert<'k, 'v>(
+    pub fn insert_bytes(
         &mut self,
-        key: K::SelfType<'a>,
-        value: V::SelfType<'a>,
-    ) -> Result<Option<AccessGuard<V>>> {
-        let name = self.table.name().to_string();
-        let out = self.table.insert(&key, &value)?;
-        // TODO: return a result here
-        // actually we want to match on the error above and not even try to journal
-        // if the insert succeeds and the journal errors we... crash? error?
-        self.journal_channel.send(TransactionOperations::Insert(
-            name,
-            K::as_bytes(&key).as_ref().to_vec(),
-            V::as_bytes(&value).as_ref().to_vec(),
-            // key.to_owned(),
-            // value.to_owned(),
-        ))?;
+        key_bytes: Vec<u8>,
+        value_bytes: Vec<u8>,
+    ) -> Result<Option<AccessGuard<Bytes>>> {
+        let table_name = self.table.name().into();
+
+        let out = self
+            .table
+            .insert(key_bytes.as_slice(), value_bytes.as_slice())?;
+
+        self.tx.operate(TransactionOperation::Insert {
+            table_name,
+            key_bytes,
+            value_bytes,
+        })?;
+
         Ok(out)
     }
 
-    pub fn remove<'k>(&mut self, key: K::SelfType<'k>) -> Result<Option<AccessGuard<V>>> {
-        let name = self.table.name().to_string();
-        let out = self.table.remove(&key)?;
-        self.journal_channel.send(TransactionOperations::Remove(
-            name,
-            K::as_bytes(&key).as_ref().to_vec(),
-        ))?;
+    pub fn insert<K, V>(&mut self, key: &K, value: &V) -> Result<Option<AccessGuard<Bytes>>>
+    where
+        K: serde::Serialize + ?Sized,
+        V: serde::Serialize + for<'de> serde::Deserialize<'de>,
+    {
+        let key_bytes = rmp_serde::to_vec(key)?;
+        let value_bytes = rmp_serde::to_vec(value)?;
+        self.insert_bytes(key_bytes, value_bytes)
+    }
+
+    pub fn remove_bytes(&mut self, key_bytes: Vec<u8>) -> Result<Option<AccessGuard<Bytes>>> {
+        let table_name = self.table.name().to_string();
+        let out = self.table.remove(key_bytes.as_slice())?;
+        self.tx
+            .operate(TransactionOperation::Remove(table_name, key_bytes))?;
         Ok(out)
+    }
+
+    pub fn remove<S>(&mut self, key: &S) -> Result<Option<AccessGuard<Bytes>>>
+    where
+        S: serde::Serialize,
+    {
+        let key_bytes = rmp_serde::to_vec(key)?;
+        self.remove_bytes(key_bytes)
     }
 }

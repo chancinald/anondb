@@ -25,6 +25,19 @@ fn open_and_find_one() -> Result<()> {
 }
 
 #[test]
+fn open_and_find_many() -> Result<()> {
+    let db = Journal::in_memory(None)?;
+    db.insert("table", &"key1".to_string(), &"test_value_1".to_string())?;
+    db.insert("table", &"key2".to_string(), &"test_value_2".to_string())?;
+
+    let records = db.find_many::<String, String, _>("table", |_key, _value| true)?;
+
+    assert_eq!(records.len(), 2);
+
+    Ok(())
+}
+
+#[test]
 fn open_and_insert() -> Result<()> {
     let db = Journal::in_memory(None)?;
     db.insert("test2", &"test_key".to_string(), &"test_value".to_string())?;

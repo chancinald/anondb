@@ -160,7 +160,7 @@ impl Journal {
         Ok((out, tx.commit()?))
     }
 
-    pub fn find_one<K, V, S>(&self, table_name: &str, selectors: S) -> Result<Option<(K, V)>>
+    pub fn find_one<K, V, S>(&self, table_name: &str, selector: S) -> Result<Option<(K, V)>>
     where
         K: serde::Serialize + for<'de> serde::Deserialize<'de>,
         V: serde::Serialize + for<'de> serde::Deserialize<'de>,
@@ -171,15 +171,35 @@ impl Journal {
         let mut range = table.range::<Bytes>(..)?;
         while let Some(item) = range.next() {
             let item = item?;
-            println!("aklshfksfh");
             let key = item.0.value().parse()?;
             let value = item.1.value().parse()?;
-            let out = selectors(key, value);
+            let out = selector(key, value);
             if out.is_some() {
                 return Ok(out);
             }
         }
         Ok(None)
+    }
+
+    pub fn find_many<'a, K, V, S>(&self, table_name: &str, selector: S) -> Result<Vec<(K, V)>>
+    where
+        K: serde::Serialize + for<'de> serde::Deserialize<'de>,
+        V: serde::Serialize + for<'de> serde::Deserialize<'de>,
+        S: Fn(&K, &V) -> bool,
+    {
+        let read = self.db.begin_read()?;
+        let table = read.open_table(TableDefinition::<Bytes, Bytes>::new(table_name))?;
+        let mut range = table.range::<Bytes>(..)?;
+        let mut out = Vec::new();
+        while let Some(item) = range.next() {
+            let item = item?;
+            let key = item.0.value().parse::<K>()?;
+            let value = item.1.value().parse::<V>()?;
+            if selector(&key, &value) {
+                out.push((key, value));
+            }
+        }
+        Ok(out)
     }
 
     pub fn get<K, V>(&self, table_name: &str, key: &K) -> Result<Option<V>>

@@ -50,6 +50,14 @@ impl Bytes {
         self.bytes.clone()
     }
 
+    pub fn into_vec(self) -> Vec<u8> {
+        self.bytes
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.bytes
+    }
+
     pub fn encode<T>(value: &T) -> Result<Self>
     where
         T: Serialize,

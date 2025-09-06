@@ -1,5 +1,5 @@
 [package]
-name = "redb_journal"
+name = "anondb"
 version = "0.1.0"
 edition = "2024"
 

@@ -3,7 +3,7 @@ use redb::*;
 
 use crate::*;
 
-pub struct JournaledTransaction<'tx> {
+pub struct ActiveTransaction<'tx> {
     tx: Option<WriteTransaction>,
     journal: &'tx Journal,
     operation_channel: (
@@ -12,7 +12,7 @@ pub struct JournaledTransaction<'tx> {
     ),
 }
 
-impl<'tx> JournaledTransaction<'tx> {
+impl<'tx> ActiveTransaction<'tx> {
     pub fn new(journal: &'tx Journal) -> Result<Self> {
         Ok(Self {
             tx: Some(journal.db.begin_write()?),
@@ -43,7 +43,7 @@ impl<'tx> JournaledTransaction<'tx> {
         Ok(JournaledTable::new(table, self.journal, self))
     }
 
-    pub fn commit(&mut self) -> Result<Vec<TransactionOperation>> {
+    pub fn commit(&mut self) -> Result<()> {
         let tx: WriteTransaction =
             std::mem::take(&mut self.tx).ok_or(anyhow::anyhow!("no active write transaction"))?;
         let mut operations = self.operation_channel.1.drain().collect::<Vec<_>>();
@@ -52,30 +52,24 @@ impl<'tx> JournaledTransaction<'tx> {
         // journal state is always mutated by a transaction
         // it's not included in the Vec<TransactionOperation>
         //
-        let mut state = self.journal.get_state()?;
+        let state = self.journal.get_state()?;
 
-        let mut journal_table =
-            tx.open_table(TableDefinition::<Bytes, Bytes>::new(JOURNAL_TABLE))?;
+        let mut journal_table = tx.open_table(JOURNAL_TABLE)?;
+        let mut tx_table = tx.open_table(TX_TABLE)?;
 
-        journal_table.insert(
-            Bytes::from(state.next_tx_index.to_le_bytes().to_vec()),
-            Bytes::encode(&operations)?,
-        )?;
+        let journal_tx = JournalTransaction { operations };
 
-        state.next_tx_index += 1;
-
-        journal_table.insert(Bytes::from(JOURNAL_STATE_KEY), Bytes::encode(&state)?)?;
+        tx_table.insert(journal_tx.hash()?, Bytes::encode(&journal_tx)?)?;
+        journal_table.insert(state.next_tx_index, Bytes::encode(&state)?)?;
 
         drop(journal_table);
+        drop(tx_table);
 
         tx.commit()?;
 
-        self.journal.register_transaction(JournalTransaction {
-            operations: operations.clone(),
-            index: state.next_tx_index - 1,
-        })?;
+        self.journal.register_transaction(journal_tx)?;
 
-        Ok(operations)
+        Ok(())
     }
 
     pub fn abort(&mut self) -> Result<()> {

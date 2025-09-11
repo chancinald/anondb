@@ -50,14 +50,20 @@ fn open_and_insert() -> Result<()> {
 #[test]
 fn open_and_tx() -> Result<()> {
     let db = Journal::in_memory(None)?;
+    // first transaction
     db.insert("test2", &"test_key".to_string(), &"test_value".to_string())?;
+    // second transaction
     let mut tx = db.begin_write()?;
     {
         let mut table = tx.open_table("test")?;
         table.insert(&"ahfskasjf".to_string(), &"AShaskfasfaf".to_string())?;
     }
-    let operations = tx.commit()?;
-    assert_eq!(operations.len(), 3);
+    tx.commit()?;
+
+    let transactions = db.drain_transactions()?;
+    assert_eq!(transactions.len(), 2);
+    assert_eq!(transactions.get(0).unwrap().operations.len(), 3);
+    assert_eq!(transactions.get(1).unwrap().operations.len(), 3);
     Ok(())
 }
 
@@ -89,7 +95,10 @@ fn open_and_remove() -> Result<()> {
         let mut table = tx.open_table("test")?;
         table.remove(&"ahfskasjf".to_string())?;
     }
-    let operations = tx.commit()?;
-    assert_eq!(operations.len(), 3);
+    tx.commit()?;
+
+    let transactions = db.drain_transactions()?;
+    assert_eq!(transactions.len(), 1);
+    assert_eq!(transactions.first().unwrap().operations.len(), 3);
     Ok(())
 }

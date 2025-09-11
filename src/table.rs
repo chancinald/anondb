@@ -5,7 +5,7 @@ use crate::*;
 
 pub struct JournaledTable<'tx> {
     table: redb::Table<'tx, Bytes, Bytes>,
-    tx: &'tx JournaledTransaction<'tx>,
+    tx: &'tx ActiveTransaction<'tx>,
     journal: &'tx Journal,
 }
 
@@ -13,7 +13,7 @@ impl<'tx> JournaledTable<'tx> {
     pub fn new(
         table: Table<'tx, Bytes, Bytes>,
         journal: &'tx Journal,
-        tx: &'tx JournaledTransaction<'tx>,
+        tx: &'tx ActiveTransaction<'tx>,
     ) -> Self {
         Self { table, journal, tx }
     }

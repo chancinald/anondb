@@ -51,6 +51,10 @@ impl Journal {
         TableDefinition::<Bytes, Bytes>::new(name)
     }
 
+    pub fn multimap_table_definition(name: &str) -> MultimapTableDefinition<Bytes, Bytes> {
+        MultimapTableDefinition::<Bytes, Bytes>::new(name)
+    }
+
     pub fn at_path(path: &Path) -> Result<Self> {
         Ok(redb::Database::create(path)?.into())
     }
@@ -64,7 +68,8 @@ impl Journal {
         Ok(Self::from(db))
     }
 
-    /// Apply the operations and increment the transaction index.
+    /// Apply the operations, increment the transaction index, and persist the transaction in the
+    /// database.
     pub fn append_tx(&self, operations: &[TransactionOperation]) -> Result<()> {
         assert!(!operations.is_empty());
         let last_operation = operations.last().unwrap();
@@ -140,35 +145,46 @@ impl Journal {
     pub fn get_state(&self) -> Result<JournalState> {
         // attempt to load the journal state
         let read = self.db.begin_read()?;
-        // open the table if it exists, read the state key if it exists
-        if let Ok(state_table) = read.open_table(Self::table_definition(JOURNAL_TABLE)) {
-            if let Some(bytes) = state_table
-                .get(Bytes::from(JOURNAL_STATE_KEY))
-                .expect("failed to read open journal state table")
-            {
-                Ok(bytes.value().parse::<JournalState>()?)
-            } else {
-                Ok(JournalState::default())
-            }
+        // open the table if it exists, read the number of applied changes
+        if let Ok(state_table) = read.open_table(JOURNAL_TABLE) {
+            Ok(JournalState {
+                next_tx_index: state_table.len()?,
+            })
         } else {
             Ok(JournalState::default())
         }
     }
 
-    pub fn begin_write(&self) -> Result<JournaledTransaction> {
-        JournaledTransaction::new(self)
+    /// Wipe the database and replay up to `divergent_index - 1`. Then apply the canonical
+    /// transactions. Attempt to apply the pending transactions after this.
+    pub fn merge(
+        &self,
+        divergent_index: u64,
+        canonical: Vec<JournalTransaction>,
+        pending: Vec<JournalTransaction>,
+    ) -> Result<()> {
+        // wipe db
+        //
+        // replay transactions
+        //
+        // apply canonical transactions
+        //
+        // for tx in pending
+        //   check for conflicts between tx and canonical transactions?
+        //   simply overwrite?
+        //   user can always step backward to get previous versions of things
+        unimplemented!()
+    }
+
+    pub fn begin_write(&self) -> Result<ActiveTransaction> {
+        ActiveTransaction::new(self)
     }
 
     pub fn begin_read(&self) -> Result<ReadTransaction> {
         Ok(self.db.begin_read()?)
     }
 
-    pub fn insert<K, V>(
-        &self,
-        table_name: &str,
-        key: &K,
-        value: &V,
-    ) -> Result<(Option<V>, Vec<TransactionOperation>)>
+    pub fn insert<K, V>(&self, table_name: &str, key: &K, value: &V) -> Result<Option<V>>
     where
         K: serde::Serialize,
         V: serde::Serialize + for<'de> serde::Deserialize<'de>,
@@ -183,10 +199,12 @@ impl Journal {
         };
 
         drop(table);
+        tx.commit()?;
 
-        Ok((out, tx.commit()?))
+        Ok(out)
     }
 
+    /// Scan a table for a specific key. May not be invoked on a multimap table.
     pub fn find_one<K, V, S>(&self, table_name: &str, selector: S) -> Result<Option<(K, V)>>
     where
         K: serde::Serialize + for<'de> serde::Deserialize<'de>,
@@ -214,6 +232,7 @@ impl Journal {
         Ok(None)
     }
 
+    /// Scan a table for many matching keys. May not be invoked on a multimap table.
     pub fn find_many<'a, K, V, S>(&self, table_name: &str, selector: S) -> Result<Vec<(K, V)>>
     where
         K: serde::Serialize + for<'de> serde::Deserialize<'de>,
@@ -242,6 +261,7 @@ impl Journal {
         Ok(out)
     }
 
+    /// Get a value from a table. May not be invoked on a multimap table.
     pub fn get<K, V>(&self, table_name: &str, key: &K) -> Result<Option<V>>
     where
         K: serde::Serialize,
@@ -262,6 +282,7 @@ impl Journal {
         }
     }
 
+    /// Count the number of keys present in a table.
     pub fn count<K, V>(&self, table_name: &str) -> Result<u64>
     where
         K: redb::Key + 'static,

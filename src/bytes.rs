@@ -6,7 +6,7 @@ use redb::Value;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Bytes {
     bytes: Vec<u8>,
 }
@@ -20,6 +20,57 @@ impl Borrow<[u8]> for Bytes {
 impl Borrow<Vec<u8>> for Bytes {
     fn borrow(&self) -> &Vec<u8> {
         &self.bytes
+    }
+}
+
+impl AsRef<[u8]> for Bytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl Into<Vec<u8>> for Bytes {
+    fn into(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+impl<'a> Into<&'a str> for &'a Bytes {
+    fn into(self) -> &'a str {
+        str::from_utf8(&self.bytes).unwrap()
+    }
+}
+
+impl Into<u64> for Bytes {
+    fn into(self) -> u64 {
+        let mut bytes = [0u8; 8];
+        assert_eq!(self.bytes.len(), 8);
+        bytes.copy_from_slice(&self.bytes);
+        u64::from_le_bytes(bytes)
+    }
+}
+
+impl From<String> for Bytes {
+    fn from(value: String) -> Self {
+        Bytes {
+            bytes: value.into_bytes(),
+        }
+    }
+}
+
+impl From<&str> for Bytes {
+    fn from(value: &str) -> Self {
+        Bytes {
+            bytes: value.as_bytes().to_vec(),
+        }
+    }
+}
+
+impl From<u64> for Bytes {
+    fn from(value: u64) -> Self {
+        Bytes {
+            bytes: value.to_le_bytes().to_vec(),
+        }
     }
 }
 
@@ -48,10 +99,6 @@ impl From<&[u8]> for Bytes {
 impl Bytes {
     pub fn to_vec(&self) -> Vec<u8> {
         self.bytes.clone()
-    }
-
-    pub fn into_vec(self) -> Vec<u8> {
-        self.bytes
     }
 
     pub fn as_slice(&self) -> &[u8] {

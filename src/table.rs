@@ -18,6 +18,10 @@ impl<'tx> JournaledTable<'tx> {
         Self { table, journal, tx }
     }
 
+    pub fn len(&self) -> Result<u64> {
+        Ok(self.table.len()?)
+    }
+
     pub fn insert_bytes(
         &mut self,
         key_bytes: &Bytes,

@@ -21,7 +21,13 @@ const JOURNAL_STATE_KEY: &'static [u8] = "redb_journal_state".as_bytes();
 #[cfg(test)]
 mod test;
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct JournalTransaction {
+    pub operations: Vec<TransactionOperation>,
+    pub index: u64,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 #[repr(u8)]
 pub enum TransactionOperation {
     /// Rename a table

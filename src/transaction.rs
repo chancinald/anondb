@@ -50,6 +50,8 @@ impl<'tx> JournaledTransaction<'tx> {
         operations.push(TransactionOperation::Commit);
 
         // journal state is always mutated by a transaction
+        // it's not included in the Vec<TransactionOperation>
+        //
         let mut state = self.journal.get_state()?;
 
         let mut journal_table =
@@ -67,6 +69,12 @@ impl<'tx> JournaledTransaction<'tx> {
         drop(journal_table);
 
         tx.commit()?;
+
+        self.journal.register_transaction(JournalTransaction {
+            operations: operations.clone(),
+            index: state.next_tx_index - 1,
+        })?;
+
         Ok(operations)
     }
 
@@ -80,7 +88,7 @@ impl<'tx> JournaledTransaction<'tx> {
         let table = self
             .active_tx()?
             .open_multimap_table::<Bytes, Bytes>(MultimapTableDefinition::new(name))?;
-        unimplemented!()
+        unimplemented!();
     }
 
     pub fn rename_table(&self, old_table_name: &str, new_table_name: &str) -> Result<()> {

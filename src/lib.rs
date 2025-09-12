@@ -20,7 +20,7 @@ pub use table::JournaledTable;
 /// Stores the sequence of transactions that have been applied. Transaction index
 /// keyed to hash of the transaction.
 const JOURNAL_TABLE_NAME: &str = "_______anondb_journal";
-const JOURNAL_TABLE: redb::TableDefinition<u64, Bytes> =
+const JOURNAL_TABLE: redb::TableDefinition<u64, [u8; 32]> =
     redb::TableDefinition::new(JOURNAL_TABLE_NAME);
 /// Stores the transaction data. Each transaction is stored keyed to its hash `<[u8; 32],
 /// JournalTransaction>`.
@@ -32,12 +32,13 @@ mod test;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JournalTransaction {
+    pub last_tx_hash: [u8; 32],
     pub operations: Vec<TransactionOperation>,
 }
 
 impl JournalTransaction {
     pub fn hash(&self) -> Result<[u8; 32]> {
-        Ok(blake3::hash(Bytes::encode(self)?.as_slice()).into())
+        Ok(blake3::hash(Bytes::encode(&self)?.as_slice()).into())
     }
 }
 

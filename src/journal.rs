@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::default;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -12,6 +13,7 @@ use crate::*;
 #[derive(Serialize, Deserialize, Default)]
 pub struct JournalState {
     pub next_tx_index: u64,
+    pub last_tx_hash: [u8; 32],
 }
 
 /// A journal structure for a single redb database. Replaying transactions from an empty database
@@ -147,11 +149,50 @@ impl Journal {
         let read = self.db.begin_read()?;
         // open the table if it exists, read the number of applied changes
         if let Ok(state_table) = read.open_table(JOURNAL_TABLE) {
+            let next_tx_index = state_table.len()?;
+            let last_tx_hash = if next_tx_index > 0 {
+                match state_table.get(next_tx_index - 1)? {
+                    Some(hash) => hash.value(),
+                    None => anyhow::bail!("unable to find hash for latest tx index"),
+                }
+            } else {
+                <[u8; 32]>::default()
+            };
             Ok(JournalState {
-                next_tx_index: state_table.len()?,
+                last_tx_hash,
+                next_tx_index,
             })
         } else {
             Ok(JournalState::default())
+        }
+    }
+
+    /// Retrieve the current known journal transactions
+    pub fn get_journal_transactions(&self) -> Result<Vec<JournalTransaction>> {
+        let read = self.db.begin_read()?;
+        if let Ok(journal_table) = read.open_table(JOURNAL_TABLE) {
+            let tx_table = read.open_table(TX_TABLE)?;
+            let mut txs = Vec::default();
+            let mut range = journal_table.range::<u64>(..)?;
+            while let Some(v) = range.next() {
+                let (key, val) = v?;
+                let tx_hash = val.value();
+                let tx_index = key.value();
+                match tx_table.get(tx_hash)? {
+                    Some(tx) => {
+                        let tx_bytes = tx.value();
+                        txs.push(tx_bytes.parse()?);
+                    }
+                    None => anyhow::bail!(
+                        "unable to find transaction data for index {}, hash {}",
+                        tx_index,
+                        hex::encode(tx_hash)
+                    ),
+                }
+            }
+            Ok(txs)
+        } else {
+            Ok(Vec::default())
         }
     }
 

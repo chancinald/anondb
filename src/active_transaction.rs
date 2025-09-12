@@ -57,10 +57,14 @@ impl<'tx> ActiveTransaction<'tx> {
         let mut journal_table = tx.open_table(JOURNAL_TABLE)?;
         let mut tx_table = tx.open_table(TX_TABLE)?;
 
-        let journal_tx = JournalTransaction { operations };
+        let journal_tx = JournalTransaction {
+            last_tx_hash: state.last_tx_hash,
+            operations,
+        };
+        let tx_hash = journal_tx.hash()?;
 
-        tx_table.insert(journal_tx.hash()?, Bytes::encode(&journal_tx)?)?;
-        journal_table.insert(state.next_tx_index, Bytes::encode(&state)?)?;
+        tx_table.insert(tx_hash, Bytes::encode(&journal_tx)?)?;
+        journal_table.insert(state.next_tx_index, tx_hash)?;
 
         drop(journal_table);
         drop(tx_table);

@@ -83,7 +83,7 @@ impl<'tx> ActiveTransaction<'tx> {
     }
 
     pub fn open_multimap_table(&'tx self, name: &str) -> Result<MultimapTable<'tx, Bytes, Bytes>> {
-        let table = self
+        let _table = self
             .active_tx()?
             .open_multimap_table::<Bytes, Bytes>(MultimapTableDefinition::new(name))?;
         unimplemented!();
@@ -121,13 +121,13 @@ impl<'tx> ActiveTransaction<'tx> {
         Ok(out)
     }
 
-    pub fn delete_multimap_table(&self, name: &str) -> Result<bool> {
+    pub fn delete_multimap_table(&self, _name: &str) -> Result<bool> {
         unimplemented!();
-        let out = self
-            .active_tx()?
-            .delete_multimap_table(MultimapTableDefinition::<Bytes, Bytes>::new(name))?;
-        self.operate(TransactionOperation::DeleteMultimapTable(name.into()))?;
-        Ok(out)
+        // let out = self
+        //     .active_tx()?
+        //     .delete_multimap_table(MultimapTableDefinition::<Bytes, Bytes>::new(name))?;
+        // self.operate(TransactionOperation::DeleteMultimapTable(name.into()))?;
+        // Ok(out)
     }
 
     pub fn list_tables(&self) -> Result<Vec<String>> {

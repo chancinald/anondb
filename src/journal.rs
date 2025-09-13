@@ -1,10 +1,8 @@
 use std::collections::HashMap;
-use std::default;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
-use anyhow::anyhow;
 use redb::*;
 use serde::Deserialize;
 use serde::Serialize;
@@ -239,9 +237,9 @@ impl Journal {
     /// transactions. Attempt to apply the pending transactions after this.
     pub fn merge(
         &self,
-        divergent_index: u64,
-        canonical: Vec<JournalTransaction>,
-        pending: Vec<JournalTransaction>,
+        _divergent_index: u64,
+        _canonical: Vec<JournalTransaction>,
+        _pending: Vec<JournalTransaction>,
     ) -> Result<()> {
         // wipe db
         //

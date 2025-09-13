@@ -179,8 +179,35 @@ impl Journal {
         }
     }
 
+    pub fn journal_tx_len(&self) -> Result<u64> {
+        let read = self.db.begin_read()?;
+        if let Ok(journal_table) = read.open_table(JOURNAL_TABLE) {
+            Ok(journal_table.len()?)
+        } else {
+            Ok(0)
+        }
+    }
+
+    pub fn journal_tx_by_index(&self, index: u64) -> Result<Option<JournalTransaction>> {
+        let read = self.db.begin_read()?;
+        if let Ok(journal_table) = read.open_table(JOURNAL_TABLE) {
+            let tx_table = read.open_table(TX_TABLE)?;
+            let tx_hash = journal_table.get(index)?;
+            if tx_hash.is_none() {
+                return Ok(None);
+            }
+            let tx_hash = tx_hash.unwrap();
+            match tx_table.get(tx_hash.value())? {
+                Some(tx_bytes) => Ok(Some(tx_bytes.value().parse::<JournalTransaction>()?)),
+                None => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Retrieve the current known journal transactions
-    pub fn get_journal_transactions(&self) -> Result<Vec<JournalTransaction>> {
+    pub fn journal_transactions(&self) -> Result<Vec<JournalTransaction>> {
         let read = self.db.begin_read()?;
         if let Ok(journal_table) = read.open_table(JOURNAL_TABLE) {
             let tx_table = read.open_table(TX_TABLE)?;

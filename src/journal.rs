@@ -4,6 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
+use anyhow::anyhow;
 use redb::*;
 use serde::Deserialize;
 use serde::Serialize;
@@ -72,16 +73,27 @@ impl Journal {
 
     /// Apply the operations, increment the transaction index, and persist the transaction in the
     /// database.
-    pub fn append_tx(&self, operations: &[TransactionOperation]) -> Result<()> {
-        assert!(!operations.is_empty());
-        let last_operation = operations.last().unwrap();
-        assert_eq!(
-            last_operation,
-            &TransactionOperation::Commit,
-            "final operation was not commit"
-        );
-
+    pub fn append_tx(
+        &self,
+        JournalTransaction {
+            operations,
+            last_tx_hash,
+        }: &JournalTransaction,
+    ) -> Result<()> {
         let mut tx = self.begin_write()?;
+
+        let state = self.get_state()?;
+        if &state.last_tx_hash != last_tx_hash {
+            anyhow::bail!("cannot apply transaction to divergent last_tx_hash");
+        }
+
+        if operations.is_empty() {
+            anyhow::bail!("cannot apply empty transaction");
+        }
+        let last_operation = operations.last().unwrap();
+        if last_operation != &TransactionOperation::Commit {
+            anyhow::bail!("cannot apply transaction without final operation being commit");
+        }
 
         {
             let mut tables_by_name: HashMap<String, JournaledTable> = HashMap::new();
@@ -330,7 +342,15 @@ impl Journal {
         V: redb::Value + 'static,
     {
         let read = self.db.begin_read()?;
-        let table = read.open_table(TableDefinition::<K, V>::new(table_name))?;
-        Ok(table.len()?)
+        match read.open_table(TableDefinition::<K, V>::new(table_name)) {
+            Ok(table) => Ok(table.len()?),
+            Err(e) => {
+                if matches!(e, TableError::TableDoesNotExist(_)) {
+                    Ok(0)
+                } else {
+                    Err(e.into())
+                }
+            }
+        }
     }
 }

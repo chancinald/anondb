@@ -97,6 +97,10 @@ impl From<&[u8]> for Bytes {
 }
 
 impl Bytes {
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
     pub fn to_vec(&self) -> Vec<u8> {
         self.bytes.clone()
     }

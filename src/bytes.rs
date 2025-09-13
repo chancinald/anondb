@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::sync::Arc;
 
 use anyhow::Result;
 use redb::Key;
@@ -47,6 +48,14 @@ impl Into<u64> for Bytes {
         assert_eq!(self.bytes.len(), 8);
         bytes.copy_from_slice(&self.bytes);
         u64::from_le_bytes(bytes)
+    }
+}
+
+impl From<Arc<[u8]>> for Bytes {
+    fn from(value: Arc<[u8]>) -> Self {
+        Bytes {
+            bytes: value.to_vec(),
+        }
     }
 }
 

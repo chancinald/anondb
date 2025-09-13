@@ -285,6 +285,28 @@ impl Journal {
         Ok(None)
     }
 
+    pub fn list_keys<'a, K>(&self, table_name: &str) -> Result<Vec<K>>
+    where
+        K: serde::Serialize + for<'de> serde::Deserialize<'de>,
+    {
+        let read = self.db.begin_read()?;
+        let table = read.open_table(TableDefinition::<Bytes, Bytes>::new(table_name));
+        // don't error if the table doesn't exist, simply return an empty vec
+        if let Err(e) = &table {
+            if matches!(e, TableError::TableDoesNotExist(_)) {
+                return Ok(vec![]);
+            }
+        }
+        let table = table?;
+        let mut range = table.range::<Bytes>(..)?;
+        let mut out = Vec::default();
+        while let Some(item) = range.next() {
+            let key = item?.0.value().parse()?;
+            out.push(key);
+        }
+        Ok(out)
+    }
+
     /// Scan a table for many matching keys. May not be invoked on a multimap table.
     pub fn find_many<'a, K, V, S>(&self, table_name: &str, selector: S) -> Result<Vec<(K, V)>>
     where

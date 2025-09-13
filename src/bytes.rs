@@ -9,6 +9,7 @@ use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct Bytes {
+    #[serde(with = "serde_bytes")]
     bytes: Vec<u8>,
 }
 
@@ -142,18 +143,18 @@ impl Key for Bytes {
 }
 
 impl Value for Bytes {
-    type AsBytes<'a> = Vec<u8>;
+    type AsBytes<'a> = &'a [u8];
     type SelfType<'a> = Bytes;
 
     fn type_name() -> redb::TypeName {
-        redb::TypeName::new("bytes")
+        redb::TypeName::new("anondb_bytes")
     }
 
     fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
     where
         Self: 'b,
     {
-        value.bytes.clone()
+        &value.bytes
     }
 
     fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>

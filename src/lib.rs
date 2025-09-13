@@ -32,6 +32,7 @@ mod test;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JournalTransaction {
+    #[serde(with = "serde_bytes")]
     pub last_tx_hash: [u8; 32],
     pub operations: Vec<TransactionOperation>,
 }

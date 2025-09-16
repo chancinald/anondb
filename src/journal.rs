@@ -39,6 +39,60 @@ impl From<Database> for Journal {
 }
 
 impl Journal {
+    // TODO: just make this a prefix
+    pub fn system_tables() -> Vec<String> {
+        vec![JOURNAL_TABLE_NAME.to_string(), TX_TABLE_NAME.to_string()]
+    }
+
+    pub fn flatten_at_index(&self, index: u64) -> Result<JournalTransaction> {
+        self.at_index(index)?.flatten()
+    }
+
+    pub fn at_index(&self, index: u64) -> Result<Self> {
+        let out = Self::in_memory(None)?;
+        for i in 0..=index {
+            if let Some(tx) = self.journal_tx_by_index(i)? {
+                out.append_tx(&tx)?;
+            } else {
+                anyhow::bail!("No transaction for index {i}");
+            }
+        }
+        Ok(out)
+    }
+
+    /// Flatten an entire database into a single journal transaction. This operation loads the
+    /// entire database into memory. Database journal entries are not preserved, this produces a
+    /// snapshot at the current index of the database.
+    pub fn flatten(&self) -> Result<JournalTransaction> {
+        let mut tx = JournalTransaction {
+            last_tx_hash: <[u8; 32]>::default(),
+            operations: Vec::default(),
+        };
+        let system_tables = Self::system_tables();
+        let read = self.db.begin_read()?;
+        // TODO: add multimap tables
+        let tables = read.list_tables()?;
+        for table in tables {
+            let table_name = table.name().to_string();
+            if system_tables.contains(&table_name) {
+                continue;
+            }
+            let table = read.open_table(Self::table_definition(&table_name))?;
+            tx.operations
+                .push(TransactionOperation::OpenTable(table_name.clone()));
+            let range = table.range::<Bytes>(..)?;
+            for entry in range {
+                let (key, val) = entry?;
+                tx.operations.push(TransactionOperation::Insert {
+                    table_name: table_name.clone(),
+                    key_bytes: key.value(),
+                    value_bytes: val.value(),
+                });
+            }
+        }
+        tx.operations.push(TransactionOperation::Commit);
+        Ok(tx)
+    }
     pub fn register_transaction(&self, tx: JournalTransaction) -> Result<()> {
         self.transactions.0.send(tx)?;
         Ok(())

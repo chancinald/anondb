@@ -400,4 +400,22 @@ impl Journal {
             }
         }
     }
+
+    /// Remove a value from a table. May not be invoked on a multimap table.
+    pub fn remove<K, V>(&self, table_name: &str, key: &K) -> Result<Option<V>>
+    where
+        K: serde::Serialize,
+        V: for<'de> serde::Deserialize<'de>,
+    {
+        let mut tx = self.begin_write()?;
+        let mut table = tx.open_table(table_name)?;
+        let removed = table.remove(key)?.and_then(|v| Some(v.value()));
+        drop(table);
+        tx.commit()?;
+        if let Some(removed) = removed {
+            Ok(Some(removed.parse::<V>()?))
+        } else {
+            Ok(None)
+        }
+    }
 }

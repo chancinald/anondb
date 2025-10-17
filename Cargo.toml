@@ -1,18 +1,13 @@
-[package]
-name = "anondb"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "3"
+members = ["anondb", "anondb-kv", "anondb-macros"]
 
-[lib]
+[workspace.dependencies]
+anyhow = "1"
 
-[dependencies]
-redb = "2.6.3"
-serde = { version = "1", features = ["derive"] }
-bincode = "1"
-flume = "0.11.1"
-anyhow = "1.0.99"
-rmp = "0.8.14"
-rmp-serde = "1.3.0"
-blake3 = "1.8.2"
-hex = "0.4.3"
-serde_bytes = "0.11.17"
+anondb-macros = "0"
+anondb-kv = "0"
+
+[patch.crates-io]
+anondb-macros = { path = "./anondb-macros" }
+anondb-kv = { path = "./anondb-kv" }

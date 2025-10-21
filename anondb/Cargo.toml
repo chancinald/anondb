@@ -17,8 +17,6 @@ rmpv = "1"
 
 anyhow = { workspace = true }
 anondb-kv = { workspace = true }
-
-[dev-dependencies]
 anondb-macros = { workspace = true }
 
 

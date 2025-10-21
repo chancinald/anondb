@@ -132,7 +132,6 @@ pub fn anondb_collections(input: TokenStream) -> TokenStream {
         let field_name = &f.ident;
         quote! {
             self.#field_name.set_kv(kv.clone())?;
-            // println!("Generics: {}, Field: {}, Type: {}", stringify!(#impl_generics), stringify!(#field_name), stringify!(#field_type));
         }
     });
 

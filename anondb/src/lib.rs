@@ -8,3 +8,7 @@ pub use query::*;
 
 #[cfg(test)]
 mod test;
+
+// re-exports
+pub use anondb_kv::*;
+pub use anondb_macros::AnonDB;

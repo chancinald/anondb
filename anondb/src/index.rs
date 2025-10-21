@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+// TODO: explicitly check and disallow duplicate field names
 #[derive(Debug, Clone, PartialEq)]
 pub struct Index<T> {
     pub name: String,

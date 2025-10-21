@@ -8,6 +8,17 @@ use serde::Serialize;
 use super::*;
 use anondb_kv::*;
 
+pub trait Queryable {
+    type Document;
+}
+
+impl<T, K: KV> Queryable for Collection<T, K>
+where
+    T: 'static + Serialize + for<'de> Deserialize<'de>,
+{
+    type Document = T;
+}
+
 pub struct Collection<T, K: KV>
 where
     T: 'static + Serialize + for<'de> Deserialize<'de>,
@@ -99,14 +110,14 @@ where
     }
 
     /// Get a reference to the backing KV.
-    fn kv(&self) -> &Arc<K> {
+    pub(crate) fn kv(&self) -> &Arc<K> {
         self.kv
             .as_ref()
             .expect(&format!("Collection \"{}\" has no kv set!", self.name()))
     }
 
     /// Get a reference to indices associated with this collection, keyed to their kv table name.
-    fn indices(&self) -> &HashMap<String, Index<T>> {
+    pub fn indices(&self) -> &HashMap<String, Index<T>> {
         self.named_indices
             .as_ref()
             .expect("Collection has not constructed \"named_indices\".")
@@ -124,7 +135,7 @@ where
     }
 
     #[allow(dead_code)]
-    fn primary_key(&self) -> &(String, fn(&T) -> Vec<u8>) {
+    pub(crate) fn primary_key(&self) -> &(String, fn(&T) -> Vec<u8>) {
         self.primary_key.as_ref().expect(&format!(
             "Collection \"{}\" has no primary key set!",
             self.name()
@@ -134,7 +145,7 @@ where
     /// Define an index with a `name`, and a set of fields and their sort direction. This will
     /// create an index over 1 or more fields. See kv.rs for information on how indices are sorted.
     /// Indices are automatically used during operation and can be lazily initialized/removed.
-    pub fn add_index(mut self, index: Index<T>) -> Result<Self> {
+    pub fn add_index(&mut self, index: Index<T>) -> Result<()> {
         if index.field_names.is_empty() {
             log::warn!(
                 "In collection \"{}\", index \"{}\" contains no fields",
@@ -145,7 +156,7 @@ where
             panic!("Refusing to start in production mode with an empty index");
         }
         self.indices.push(index);
-        Ok(self)
+        Ok(())
     }
 
     /// Take the vector of indices and build a hashmap with proper table names.
@@ -259,6 +270,10 @@ where
             return Ok(true);
         })?;
         Ok(())
+    }
+
+    pub fn find_one(&self, query: HashMap<String, Param<Vec<u8>>>) -> Result<Option<T>> {
+        Ok(None)
     }
 }
 

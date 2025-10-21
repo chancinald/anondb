@@ -1,10 +1,12 @@
 use std::collections::HashMap;
+use std::ops::RangeBounds;
 use std::sync::Arc;
 use std::sync::RwLock;
 
 use anyhow::Result;
 
 use redb::*;
+use serde::Deserialize;
 
 use super::*;
 
@@ -141,6 +143,53 @@ impl Operations for RedbTransaction {
                 Ok(())
             }
         }
+    }
+
+    fn range<'a, T: for<'de> Deserialize<'de>>(
+        &self,
+        table: &str,
+        range: impl RangeBounds<&'a [u8]> + 'a,
+        dir: SortDirection,
+        handler: impl Fn(&[u8], &[u8]) -> Result<(Option<T>, bool)>,
+    ) -> Result<impl Iterator<Item = T>> {
+        let mut out = Vec::default();
+        match self {
+            RedbTransaction::Read(_, _) => {
+                let table = self.read_table(table)?;
+                let mut range = table.range::<&[u8]>(range)?;
+                while let Some(item) = match dir {
+                    SortDirection::Asc => range.next(),
+                    SortDirection::Desc => range.next_back(),
+                } {
+                    let (key, val) = item?;
+                    let (item_maybe, cont) = handler(key.value(), val.value())?;
+                    if let Some(item) = item_maybe {
+                        out.push(item);
+                    }
+                    if !cont {
+                        break;
+                    }
+                }
+            }
+            RedbTransaction::Write { write, .. } => {
+                let table = write.open_table(TableDefinition::<&[u8], &[u8]>::new(table))?;
+                let mut range = table.range::<&[u8]>(range)?;
+                while let Some(item) = match dir {
+                    SortDirection::Asc => range.next(),
+                    SortDirection::Desc => range.next_back(),
+                } {
+                    let (key, val) = item?;
+                    let (item_maybe, cont) = handler(key.value(), val.value())?;
+                    if let Some(item) = item_maybe {
+                        out.push(item);
+                    }
+                    if !cont {
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(out.into_iter())
     }
 }
 
@@ -285,5 +334,39 @@ impl Operations for RedbKV {
         } else {
             Ok(None)
         }
+    }
+
+    // TODO: custom iterator implementation to avoid buffering into a vec
+    fn range<'a, T: for<'de> Deserialize<'de>>(
+        &self,
+        table: &str,
+        range: impl RangeBounds<&'a [u8]> + 'a,
+        dir: SortDirection,
+        handler: impl Fn(&[u8], &[u8]) -> Result<(Option<T>, bool)>,
+    ) -> Result<impl Iterator<Item = T>> {
+        let read = self.db.begin_read()?;
+        let table = read.open_table(TableDefinition::<&[u8], &[u8]>::new(table));
+        if let Err(e) = &table {
+            if matches!(e, TableError::TableDoesNotExist(_)) {
+                return Ok(vec![].into_iter());
+            }
+        }
+        let table = table?;
+        let mut range = table.range::<&[u8]>(range)?;
+        let mut out = Vec::default();
+        while let Some(item) = match dir {
+            SortDirection::Asc => range.next(),
+            SortDirection::Desc => range.next_back(),
+        } {
+            let (key, val) = item?;
+            let (item_maybe, cont) = handler(key.value(), val.value())?;
+            if let Some(item) = item_maybe {
+                out.push(item);
+            }
+            if !cont {
+                break;
+            }
+        }
+        Ok(out.into_iter())
     }
 }

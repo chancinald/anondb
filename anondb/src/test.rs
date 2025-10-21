@@ -9,13 +9,14 @@ use crate::*;
 
 #[derive(Serialize, Deserialize)]
 pub struct TestDocument {
-    id: u128,
+    pub id: u128,
+    pub other: String,
 }
 
 #[derive(AnonDB)]
-pub struct DB<K: KV = RedbKV> {
+pub struct DB<K: KV> {
     #[anondb(primary_key = id)]
-    // #[anondb(index = id, unique)]
+    #[anondb(index = id, other; unique = true)]
     pub test_collection: Collection<TestDocument, K>,
 }
 
@@ -23,7 +24,10 @@ pub struct DB<K: KV = RedbKV> {
 fn create_collections() -> Result<()> {
     let db = DB::<RedbKV>::in_memory(None)?;
 
-    db.test_collection.insert(&TestDocument { id: 0 })?;
+    db.test_collection.insert(&TestDocument {
+        id: 0,
+        other: "".into(),
+    })?;
 
     assert_eq!(db.test_collection.count()?, 1);
 
@@ -34,11 +38,30 @@ fn create_collections() -> Result<()> {
 fn should_fail_to_insert_duplicate_primary_key() -> Result<()> {
     let db = DB::<RedbKV>::in_memory(None)?;
 
-    let doc = TestDocument { id: 99 };
+    let doc = TestDocument {
+        id: 99,
+        other: "".into(),
+    };
     db.test_collection.insert(&doc)?;
     db.test_collection
         .insert(&doc)
         .expect_err("Should fail to insert duplicate primary key");
 
+    Ok(())
+}
+
+#[test]
+fn should_query_collection() -> Result<()> {
+    let db = DB::<RedbKV>::in_memory(None)?;
+
+    let doc = TestDocument {
+        id: 99,
+        other: "".into(),
+    };
+    db.test_collection.insert(&doc)?;
+
+    let v = find_one!(db.test_collection, TestDocument;
+        id: Param::Eq(99u128)
+    );
     Ok(())
 }

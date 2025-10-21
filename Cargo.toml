@@ -4,10 +4,13 @@ members = ["anondb", "anondb-kv", "anondb-macros"]
 
 [workspace.dependencies]
 anyhow = "1"
+serde = { version = "1" }
 
+anondb = "0"
 anondb-macros = "0"
 anondb-kv = "0"
 
 [patch.crates-io]
+anondb = { path = "./anondb" }
 anondb-macros = { path = "./anondb-macros" }
 anondb-kv = { path = "./anondb-kv" }

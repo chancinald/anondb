@@ -3,6 +3,12 @@ pub trait SerializeLexicographic {
     fn serialize_lex(&self) -> Vec<u8>;
 }
 
+impl SerializeLexicographic for String {
+    fn serialize_lex(&self) -> Vec<u8> {
+        unimplemented!()
+    }
+}
+
 impl<T: SerializeLexicographic> SerializeLexicographic for Option<T> {
     fn serialize_lex(&self) -> Vec<u8> {
         match self {

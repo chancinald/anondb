@@ -2,6 +2,9 @@
 mod kv_redb;
 mod lexicographic;
 
+use serde::Deserialize;
+use std::ops::RangeBounds;
+
 #[cfg(feature = "redb")]
 pub use kv_redb::*;
 pub use lexicographic::*;
@@ -63,6 +66,17 @@ pub trait Operations {
     fn count(&self, table: &str) -> Result<u64>;
     /// Remove all entries in the table.
     fn clear(&self, table: &str) -> Result<()>;
+
+    /// Invoke a handler function on a range of entries in a collection. The handler function
+    /// returns an optional value, and a boolean indicating whether to continue iteration.
+    /// Values returned by the handler are returned as an Iterator.
+    fn range<'a, T: for<'de> Deserialize<'de>>(
+        &self,
+        table: &str,
+        range: impl RangeBounds<&'a [u8]> + 'a,
+        dir: SortDirection,
+        handler: impl Fn(&[u8], &[u8]) -> Result<(Option<T>, bool)>,
+    ) -> Result<impl Iterator<Item = T>>;
 }
 
 pub trait Transaction: Operations {

@@ -11,5 +11,6 @@ redb = ["dep:redb"]
 
 [dependencies]
 anyhow = { workspace = true }
+serde = { workspace = true }
 
 redb = { version = "2.6.3", optional = true }

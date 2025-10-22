@@ -9,40 +9,6 @@ use redb::*;
 
 use super::*;
 
-pub enum MaybeOwned<'a, T> {
-    Borrowed(&'a T),
-    Owned(T),
-    Arc(Arc<T>),
-}
-
-impl<'a, T> MaybeOwned<'a, T> {
-    pub fn as_ref(&self) -> &T {
-        match self {
-            MaybeOwned::Borrowed(r) => r,
-            MaybeOwned::Owned(t) => t,
-            MaybeOwned::Arc(t) => t,
-        }
-    }
-}
-
-impl<'a, T> From<T> for MaybeOwned<'a, T> {
-    fn from(value: T) -> Self {
-        MaybeOwned::Owned(value)
-    }
-}
-
-impl<'a, T> From<&'a T> for MaybeOwned<'a, T> {
-    fn from(value: &'a T) -> Self {
-        MaybeOwned::Borrowed(value)
-    }
-}
-
-impl<'a, T> From<Arc<T>> for MaybeOwned<'a, T> {
-    fn from(value: Arc<T>) -> Self {
-        MaybeOwned::Arc(value)
-    }
-}
-
 pub struct RedbReadTransaction {
     pub read: redb::ReadTransaction,
     pub tables: RwLock<HashMap<String, Arc<ReadOnlyTable<&'static [u8], &'static [u8]>>>>,
@@ -127,7 +93,6 @@ impl ReadOperations for RedbReadTransaction {
         let inner_iter = table.get(key)?;
         Ok(RedbReadIter {
             data: Arc::new(key.to_vec()),
-            tx: self.into(),
             inner_iter,
             map_fn: |key, item| {
                 let val = item?;
@@ -158,7 +123,6 @@ impl ReadOperations for RedbReadTransaction {
         let inner_iter = table.range(range)?;
         Ok(RedbReadIter {
             data: Arc::new(()),
-            tx: self.into(),
             inner_iter,
             map_fn: |_data, item| {
                 let (k, v) = item?;
@@ -182,7 +146,6 @@ impl ReadOperations for RedbReadTransaction {
         }));
         Ok(RedbReadIter {
             data: Arc::new(()),
-            tx: self.into(),
             inner_iter,
             map_fn: |_data, item| {
                 let (k, v) = item?;

@@ -2,16 +2,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use super::*;
-
-pub struct RedbReadIter<'a, T, I: Iterator, D> {
+/// A mapping utility for fallible iterators.
+pub struct RedbReadIter<T, I: Iterator, D> {
     pub data: Arc<D>,
-    pub tx: MaybeOwned<'a, RedbReadTransaction>,
     pub inner_iter: I,
     pub map_fn: fn(Arc<D>, I::Item) -> T,
 }
 
-impl<'a, T, I: Iterator, D> Iterator for RedbReadIter<'a, T, I, D> {
+impl<T, I: Iterator, D> Iterator for RedbReadIter<T, I, D> {
     type Item = T;
     fn next(&mut self) -> Option<Self::Item> {
         let data = self.data.clone();
@@ -19,6 +17,7 @@ impl<'a, T, I: Iterator, D> Iterator for RedbReadIter<'a, T, I, D> {
     }
 }
 
+/// Take an iterator that returns Result<Iterator<Result<T>>> and flatten it.
 pub struct FlatMapFallible<T, I: Iterator<Item = Result<V>>, V: Iterator<Item = Result<T>>> {
     inner_iter: I,
     to_be_flattened: Option<V>,

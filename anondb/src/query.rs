@@ -1,13 +1,10 @@
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::ops::Bound;
 use std::ops::RangeBounds;
 
 use anondb_kv::*;
 use serde::Deserialize;
 use serde::Serialize;
-
-use super::*;
 
 pub enum Param {
     Eq(Vec<u8>),

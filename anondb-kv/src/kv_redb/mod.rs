@@ -1,13 +1,14 @@
 mod iter;
+mod maybe;
 mod tx;
 
 use iter::*;
+use maybe::*;
 use tx::*;
 
 use std::collections::HashMap;
 use std::ops::RangeBounds;
 use std::sync::Arc;
-use std::sync::LazyLock;
 use std::sync::RwLock;
 
 use anyhow::Result;
@@ -16,82 +17,12 @@ use redb::*;
 
 use super::*;
 
-static EMPTY_BYTES: LazyLock<Vec<u8>> = LazyLock::new(|| vec![]);
-
 fn tabledef(name: &str) -> TableDefinition<&'static [u8], &'static [u8]> {
     TableDefinition::new(name)
 }
 
 fn tabledef_multimap(name: &str) -> MultimapTableDefinition<&'static [u8], &'static [u8]> {
     MultimapTableDefinition::new(name)
-}
-
-pub enum MaybeGuarded<'a> {
-    Guarded(MaybeOwned<'a, AccessGuard<'a, &'static [u8]>>),
-    Owned(Vec<u8>),
-    Ref(&'a [u8]),
-    Arc(Arc<Vec<u8>>),
-}
-
-impl<'a> MaybeGuarded<'a> {
-    pub fn value(&self) -> &[u8] {
-        match self {
-            MaybeGuarded::Guarded(v) => v.as_ref().value(),
-            MaybeGuarded::Owned(v) => v.as_slice(),
-            MaybeGuarded::Ref(v) => v,
-            MaybeGuarded::Arc(v) => v.as_ref(),
-        }
-    }
-}
-
-impl<'a> From<Arc<AccessGuard<'a, &'static [u8]>>> for MaybeGuarded<'a> {
-    fn from(value: Arc<AccessGuard<'a, &'static [u8]>>) -> Self {
-        MaybeGuarded::Guarded(MaybeOwned::Arc(value.clone()))
-    }
-}
-
-impl<'a> From<Vec<u8>> for MaybeGuarded<'a> {
-    fn from(value: Vec<u8>) -> Self {
-        MaybeGuarded::Owned(value)
-    }
-}
-
-impl<'a> From<Arc<Vec<u8>>> for MaybeGuarded<'a> {
-    fn from(value: Arc<Vec<u8>>) -> Self {
-        MaybeGuarded::Arc(value)
-    }
-}
-
-impl<'a> From<&'a [u8]> for MaybeGuarded<'a> {
-    fn from(value: &'a [u8]) -> Self {
-        MaybeGuarded::Ref(value)
-    }
-}
-
-impl<'a> From<AccessGuard<'a, &'static [u8]>> for MaybeGuarded<'a> {
-    fn from(value: AccessGuard<'a, &'static [u8]>) -> Self {
-        MaybeGuarded::Guarded(value.into())
-    }
-}
-
-impl<'a> From<&'a AccessGuard<'a, &'static [u8]>> for MaybeGuarded<'a> {
-    fn from(value: &'a AccessGuard<'a, &'static [u8]>) -> Self {
-        MaybeGuarded::Guarded(value.into())
-    }
-}
-
-pub struct RedbItem<'a> {
-    item: (MaybeGuarded<'a>, MaybeGuarded<'a>),
-}
-
-impl<'a> OpaqueItem for RedbItem<'a> {
-    fn key(&self) -> &[u8] {
-        self.item.0.value()
-    }
-
-    fn value(&self) -> &[u8] {
-        self.item.1.value()
-    }
 }
 
 pub struct RedbKV {
@@ -202,7 +133,6 @@ impl ReadOperations for RedbKV {
         let inner_iter = table.get(key)?;
         Ok(RedbReadIter {
             data: Arc::new(key.to_vec()),
-            tx: tx.into(),
             inner_iter,
             map_fn: |key, item| {
                 let val = item?;
@@ -233,7 +163,6 @@ impl ReadOperations for RedbKV {
         let inner_iter = table.range(range)?;
         Ok(RedbReadIter {
             data: Arc::new(()),
-            tx: tx.into(),
             inner_iter,
             map_fn: |_data, item| {
                 let (k, v) = item?;
@@ -258,7 +187,6 @@ impl ReadOperations for RedbKV {
         }));
         Ok(RedbReadIter {
             data: Arc::new(()),
-            tx: tx.into(),
             inner_iter,
             map_fn: |_data, item| {
                 let (k, v) = item?;

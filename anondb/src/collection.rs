@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -25,13 +26,11 @@ where
 {
     kv: Option<Arc<K>>,
     name: Option<String>,
-    /// KV table name keyed to the index data
-    named_indices: Option<HashMap<String, Index<T>>>,
     /// Indices without names. Necessary to account for proc-macro function invocation after struct
     /// construction.
-    indices: Vec<Index<T>>,
+    indices: Vec<Arc<Index<T>>>,
     /// Extractor function to get a primary key from an instance of T
-    primary_key: Option<(String, fn(&T) -> Vec<u8>)>,
+    primary_key_index: Option<Arc<Index<T>>>,
 }
 
 impl<T, K: KV> Collection<T, K>
@@ -44,43 +43,40 @@ where
             // these none values will be assigned in the anondb_macros::AnonDB derive macro
             kv: None,
             name: None,
-            primary_key: None,
-            named_indices: None,
+            primary_key_index: None,
             indices: Vec::default(),
         }
     }
 
     /// Returns `true` if a primary key has been set for this collection.
     pub fn has_primary_key(&self) -> bool {
-        self.primary_key.is_some()
-    }
-
-    /// Set a primary key extractor for the collection.
-    /// Failing to set a primary key extractor will cause a runtime error.
-    pub fn set_primary_key(mut self, primary_key: (String, fn(&T) -> Vec<u8>)) -> Result<Self> {
-        if self.primary_key.is_some() {
-            anyhow::bail!(
-                "Collection \"{}\" attempting to assign primary key twice!",
-                self.name()
-            );
-        }
-        self.primary_key = Some(primary_key);
-        Ok(self)
+        self.primary_key_index.is_some()
     }
 
     /// A function to set the primary key without consuming `self`. Used in the AnonDB proc macro.
-    pub fn set_primary_key_nonbuilder(
-        &mut self,
-        primary_key: (String, fn(&T) -> Vec<u8>),
-    ) -> Result<()> {
-        if self.primary_key.is_some() {
+    pub fn set_primary_key(&mut self, primary_key: (Vec<String>, fn(&T) -> Vec<u8>)) -> Result<()> {
+        if self.primary_key_index.is_some() {
             anyhow::bail!(
                 "Collection \"{}\" attempting to assign primary key twice!",
                 self.name()
             );
         }
-        self.primary_key = Some(primary_key);
+        self.primary_key_index = Some(Arc::new(Index {
+            collection_name: self.name().to_string(),
+            field_names: primary_key.0,
+            serialize: primary_key.1,
+            options: IndexOptions {
+                unique: true,
+                full_docs: true,
+            },
+        }));
         Ok(())
+    }
+
+    pub fn primary_key_index(&self) -> &Arc<Index<T>> {
+        self.primary_key_index
+            .as_ref()
+            .expect("No primary key index set!")
     }
 
     /// Set the name of the collection. This should be automatically invoked by the AnonDB proc
@@ -117,29 +113,19 @@ where
     }
 
     /// Get a reference to indices associated with this collection, keyed to their kv table name.
-    pub fn indices(&self) -> &HashMap<String, Index<T>> {
-        self.named_indices
-            .as_ref()
-            .expect("Collection has not constructed \"named_indices\".")
+    pub fn indices(&self) -> &Vec<Arc<Index<T>>> {
+        &self.indices
     }
 
     /// Get a reference to the primary key extractor.
     fn primary_key_extractor(&self) -> &fn(&T) -> Vec<u8> {
-        self.primary_key
+        self.primary_key_index
             .as_ref()
-            .map(|(_, extractor)| extractor)
+            .map(|index| &index.serialize)
             .expect(&format!(
                 "Collection \"{}\" has no primary key set!",
                 self.name()
             ))
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn primary_key(&self) -> &(String, fn(&T) -> Vec<u8>) {
-        self.primary_key.as_ref().expect(&format!(
-            "Collection \"{}\" has no primary key set!",
-            self.name()
-        ))
     }
 
     /// Define an index with a `name`, and a set of fields and their sort direction. This will
@@ -150,39 +136,48 @@ where
             log::warn!(
                 "In collection \"{}\", index \"{}\" contains no fields",
                 self.name(),
-                index.id()
+                index.table_name()
             );
             #[cfg(not(debug_assertions))]
             panic!("Refusing to start in production mode with an empty index");
         }
-        self.indices.push(index);
+        self.indices.push(Arc::new(index));
         Ok(())
     }
 
-    /// Take the vector of indices and build a hashmap with proper table names.
+    /// Take the vector of indices and check for consistency.
     /// This should be automatically invoked by the AnonDB proc macro.
     pub fn construct_indices(&mut self) -> Result<()> {
-        let mut named_indices = HashMap::default();
-        for index in std::mem::take(&mut self.indices) {
-            let name = format!("{}_{}", self.name(), index.id());
-            if index.field_names.len() == 0 {
+        let mut known_indices = HashMap::<String, ()>::default();
+        for index in &self.indices {
+            // check that the index collection name matches our name
+            if index.collection_name != self.name() {
+                anyhow::bail!(
+                    "In collection \"{}\", index \"{}\" has a mismatched collection name",
+                    self.name(),
+                    index.table_name()
+                );
+            }
+            // check that the index has at least 1 field
+            if index.field_names.is_empty() {
                 log::warn!(
                     "In collection \"{}\", index \"{}\" contains no fields",
                     self.name(),
-                    index.id()
+                    index.table_name()
                 );
                 #[cfg(not(debug_assertions))]
                 panic!("Refusing to start in production mode with an empty index");
             }
-            if named_indices.contains_key(&name) {
+            // make sure there are no duplicate indices
+            let name = index.table_name();
+            if known_indices.contains_key(&name) {
                 anyhow::bail!(
                     "Collection \"{}\" contains a duplicate index: \"{name}\"",
                     self.name()
                 );
             }
-            named_indices.insert(name, index);
+            known_indices.insert(name, ());
         }
-        self.named_indices = Some(named_indices);
         Ok(())
     }
 
@@ -190,7 +185,10 @@ where
     pub fn table_names(&self) -> Vec<String> {
         vec![
             vec![self.name().to_string()],
-            self.indices().keys().cloned().collect::<Vec<_>>(),
+            self.indices()
+                .iter()
+                .map(|index| index.table_name())
+                .collect::<Vec<_>>(),
         ]
         .concat()
     }
@@ -226,23 +224,8 @@ where
             );
         }
         tx.insert(self.name(), primary_key.as_slice(), data.as_slice())?;
-        for (table_name, index) in self.indices() {
-            // For each index serialize a key for the index
-            let key = (index.serialize)(document);
-            if index.options.unique {
-                // If the index is unique we need to reject duplicate keys
-                if tx.get(&table_name, key.as_slice())?.is_some() {
-                    anyhow::bail!(
-                        "Collection \"{}\" index \"{}\" cannot insert document, uniqueness constraint violated",
-                        self.name(),
-                        index.name
-                    );
-                }
-                tx.insert(&table_name, key.as_slice(), primary_key.as_slice())?;
-            } else {
-                // non-unique index, we're inserting into a multimap table
-                tx.insert_multimap(&table_name, key.as_slice(), primary_key.as_slice())?;
-            }
+        for index in &self.indices {
+            index.insert(&tx, document, &primary_key)?;
         }
         tx.commit()?;
         Ok(())
@@ -253,27 +236,68 @@ where
     pub fn rebuild_indices(&self) -> Result<()> {
         // first empty all index collections
         let tx = self.kv().write_tx()?;
-        for (name, _index) in self.indices() {
-            tx.clear(name)?;
+        for index in &self.indices {
+            tx.clear(&index.table_name())?;
         }
         tx.commit()?;
 
         // then iterate over all documents and construct indices
         self.kv().scan(self.name(), |primary_key, val| {
             let data = rmp_serde::from_slice(val)?;
-            for (name, index) in self.indices() {
+            for index in &self.indices {
                 let key = (index.serialize)(&data);
                 // we insert the document primary key as the value and the indexed bytes as the
                 // key to get lexicographic iteration
-                self.kv().insert(name, key.as_slice(), primary_key)?;
+                self.kv()
+                    .insert(&index.table_name(), key.as_slice(), primary_key)?;
             }
             return Ok(true);
         })?;
         Ok(())
     }
 
-    pub fn find_one(&self, query: HashMap<String, Param<Vec<u8>>>) -> Result<Option<T>> {
-        Ok(None)
+    pub fn find_many(&self, query: Query<T>) -> Result<impl Iterator<Item = T>> {
+        let primary_index_score = self.primary_key_index().query_compat(&query)?;
+
+        let mut scores = BTreeMap::default();
+        for index in self.indices() {
+            let score = index.query_compat(&query)?;
+            scores.insert(score, index.clone());
+        }
+        let (score, best_index) = scores
+            .last_key_value()
+            .map(|(k, v)| (*k, v.clone()))
+            .ok_or(anyhow::anyhow!("no index found"))?;
+        println!(
+            "using index \"{}\" score: {}",
+            best_index.table_name(),
+            score
+        );
+        let tx = self.kv().read_tx()?;
+        Ok(best_index
+            .query(&tx, query)?
+            .collect::<Vec<_>>()
+            .into_iter())
+    }
+
+    pub fn find_one(&self, query: Query<T>) -> Result<Option<T>> {
+        let mut scores = BTreeMap::default();
+        for index in self.indices() {
+            let score = index.query_compat(&query)?;
+            scores.insert(score, index.clone());
+        }
+        if let Some((score, best_index)) = scores.last_key_value() {
+            println!(
+                "using index \"{}\" score: {}",
+                best_index.table_name(),
+                score
+            );
+            let tx = self.kv().read_tx()?;
+            let mut out = best_index.query(&tx, query)?;
+            Ok(out.next())
+        } else {
+            unreachable!("no index found!");
+        }
     }
 }
 
@@ -284,10 +308,10 @@ where
     fn default() -> Self {
         Self {
             // these none values will be assigned in the anondb_macros::AnonDB derive macro
+            // they should be Some immediately after startup
             kv: None,
             name: None,
-            primary_key: None,
-            named_indices: None,
+            primary_key_index: None,
             indices: Vec::default(),
         }
     }

@@ -13,4 +13,5 @@ redb = ["dep:redb"]
 anyhow = { workspace = true }
 serde = { workspace = true }
 
+flume = "0"
 redb = { version = "2.6.3", optional = true }

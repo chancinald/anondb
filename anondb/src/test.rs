@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::*;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct TestDocument {
     pub id: u128,
     pub other: String,
@@ -57,8 +57,34 @@ fn should_query_collection() -> Result<()> {
     };
     db.test_collection.insert(&doc)?;
 
-    let v = find_one!(db.test_collection, TestDocument;
-        id: Param::Eq(99u128)
-    );
+    {
+        let out = db
+            .test_collection
+            .find_one(query!(db.test_collection, TestDocument;
+                id: Param::range(80u128..)
+            ))?;
+        assert!(out.is_some());
+        let out = out.unwrap();
+        assert_eq!(out, doc);
+    }
+    {
+        let out = db
+            .test_collection
+            .find_one(query!(db.test_collection, TestDocument;
+                id: Param::range(1000u128..)
+            ))?;
+        assert!(out.is_none());
+    }
+    {
+        let out = db
+            .test_collection
+            .find_one(query!(db.test_collection, TestDocument;
+                id: Param::eq(&99u128)
+            ))?;
+        assert!(out.is_some());
+        let out = out.unwrap();
+        assert_eq!(out, doc);
+    }
+
     Ok(())
 }

@@ -49,7 +49,7 @@ where
     /// Accept a set of field keys as lexicographically serialized bytes
     pub fn query<'tx>(
         &self,
-        tx: &'tx impl Operations,
+        tx: &'tx impl ReadOperations,
         query: Query<T>,
     ) -> Result<impl Iterator<Item = T>> {
         let mut min_key = LexicographicKey::default();
@@ -147,11 +147,8 @@ where
             end: max_bound,
         };
         let table_name = self.table_name();
-        let docs = tx.range_buffered(
-            &table_name,
-            !self.options.unique,
-            scan_range,
-            |_k, v, _done| {
+        let docs = if self.options.unique {
+            tx.range_buffered(&table_name, scan_range.as_ref(), |_k, v, _done| {
                 // v represents the primary key, we'll load the document and check it against the
                 // selector
                 let doc_bytes = if self.options.full_docs {
@@ -170,8 +167,24 @@ where
                 } else {
                     Ok(None)
                 }
-            },
-        )?;
+            })?
+        } else {
+            tx.range_buffered_multimap(&table_name, scan_range.as_ref(), |_k, v, _done| {
+                // multimap index never stores full documents, always load from the primary table
+                let doc_bytes = tx.get(&self.collection_name, v)?.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Index \"{table_name}\" referencing primary key that does not exist!"
+                    )
+                })?;
+                // parse the bytes
+                let doc = rmp_serde::from_slice::<T>(&doc_bytes)?;
+                if (query.selector)(&doc) {
+                    Ok(Some(doc))
+                } else {
+                    Ok(None)
+                }
+            })?
+        };
         Ok(docs.into_iter())
     }
 
@@ -228,7 +241,7 @@ where
     }
 
     /// Take a document and a primary key and insert into a collection.
-    pub fn insert(&self, tx: &impl Transaction, doc: &T, primary_key: &[u8]) -> Result<()> {
+    pub fn insert(&self, tx: &impl WriteTx, doc: &T, primary_key: &[u8]) -> Result<()> {
         let key = (self.serialize)(doc);
         if self.options.unique {
             if tx.get(&self.table_name(), key.as_slice())?.is_some() {

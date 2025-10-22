@@ -33,6 +33,33 @@ pub struct KeyRange<T> {
     pub end: Bound<T>,
 }
 
+impl KeyRange<Vec<u8>> {
+    pub fn as_ref(&self) -> KeyRange<&[u8]> {
+        KeyRange {
+            start: self.start_bound().map(|v| v.as_slice()),
+            end: self.end_bound().map(|v| v.as_slice()),
+        }
+    }
+}
+
+impl<'a, T: RangeBounds<&'a [u8]>> From<T> for KeyRange<Vec<u8>> {
+    fn from(value: T) -> Self {
+        KeyRange {
+            start: value.start_bound().map(|v| v.to_vec()),
+            end: value.end_bound().map(|v| v.to_vec()),
+        }
+    }
+}
+
+impl<'a> Into<KeyRange<&'a [u8]>> for &'a KeyRange<Vec<u8>> {
+    fn into(self) -> KeyRange<&'a [u8]> {
+        KeyRange {
+            start: self.start_bound().map(|v| v.as_slice()),
+            end: self.end_bound().map(|v| v.as_slice()),
+        }
+    }
+}
+
 impl<T> RangeBounds<T> for KeyRange<T> {
     fn start_bound(&self) -> Bound<&T> {
         self.start.as_ref()
@@ -95,16 +122,18 @@ pub trait OpaqueItem {
 }
 
 /// A generic key-value store. Assumed to be capable of transactional mutation of key-value collections.
-pub trait KV: Sized + Operations {
-    type Transaction: Transaction;
+pub trait KV: Sized + ReadOperations + WriteOperations {
+    type ReadTransaction: ReadOperations;
+    type WriteTransaction: WriteTx;
+
     /// Initialize a kv persisted to a path. What path is (directory, file, etc) is determined by
     /// the underlying implementation.
     fn at_path(path: &std::path::Path) -> Result<Self>;
     /// Initialize a kv with a byte representation of the initial state. This byte
     /// representation is arbitrary to the concrete implementation.
     fn in_memory(bytes_maybe: Option<&[u8]>) -> Result<Self>;
-    fn write_tx(&self) -> Result<Self::Transaction>;
-    fn read_tx(&self) -> Result<Self::Transaction>;
+    fn write_tx(&self) -> Result<Self::WriteTransaction>;
+    fn read_tx(&self) -> Result<Self::ReadTransaction>;
 
     /// Iterate over the contents of a collection, in ascending lexicographic order. Must be
     /// `O(N)`.
@@ -113,48 +142,61 @@ pub trait KV: Sized + Operations {
         S: Fn(&[u8], &[u8]) -> Result<bool>;
 }
 
-pub trait Operations {
-    /// Insert a key for a multimap table. Must be `O(1)`.
-    fn insert_multimap(&self, table: &str, key: &[u8], value: &[u8]) -> Result<()>;
-    /// Remove a key and value from a multimap table. Returns `true` if the key/value pair was
-    /// present in the table. Must be `O(1)`.
-    fn remove_multimap(&self, table: &str, key: &[u8], value: &[u8]) -> Result<bool>;
-    /// Remove all values associated with a key in a multimap table. Must be `O(1)`.
-    fn remove_all_multimap(&self, table: &str, key: &[u8]) -> Result<()>;
-    /// Get an iterator over all the values associated with a key in a multimap table.
-    fn get_multimap(&self, table: &str, key: &[u8]) -> Result<impl Iterator<Item = &[u8]>>;
-
-    /// Insert a key for a table and return the old value if it exists. Must be `O(1)`.
-    fn insert(&self, table: &str, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>>;
-    /// Remove a key from a table. Must be `O(1)`.
-    fn remove(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>>;
+pub trait ReadOperations {
+    /// Retrieve values associated with a key in a multimap table.
+    fn get_multimap(
+        &self,
+        table: &str,
+        key: &[u8],
+    ) -> Result<impl Iterator<Item = Result<impl OpaqueItem>>>;
     /// Retrieve the value associated to a key for a table. Must be `O(1)`.
     fn get(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>>;
     /// Determine the number of keys present in a table.
     fn count(&self, table: &str) -> Result<u64>;
-    /// Remove all entries in the table.
-    fn clear(&self, table: &str) -> Result<()>;
 
-    /// Invoke a handler function on a range of entries in a collection. The handler function
-    /// returns an optional value, and a boolean indicating whether to continue iteration.
-    /// Values returned by the handler are returned as an Iterator.
     fn range<'a>(
-        &self,
+        &'a self,
         table: String,
-        is_multimap: bool,
-        range: impl RangeBounds<Vec<u8>> + 'a,
-    ) -> Result<impl Iterator<Item = Result<impl OpaqueItem>>>;
+        range: impl RangeBounds<&'a [u8]>,
+    ) -> Result<impl Iterator<Item = Result<impl OpaqueItem>> + 'a>;
+
+    fn range_multimap<'a>(
+        &'a self,
+        table: String,
+        range: impl RangeBounds<&'a [u8]>,
+    ) -> Result<impl Iterator<Item = Result<impl OpaqueItem>> + 'a>;
 
     fn range_buffered<'a, T: for<'de> Deserialize<'de>>(
-        &self,
+        &'a self,
         table: &str,
-        is_multimap: bool,
-        range: impl RangeBounds<Vec<u8>> + 'a,
+        range: impl RangeBounds<&'a [u8]>,
         selector: impl Fn(&[u8], &[u8], &mut dyn FnMut()) -> Result<Option<T>>,
     ) -> Result<Vec<T>> {
         let mut is_done = false;
         let mut out = Vec::default();
-        for item in self.range(table.to_string(), is_multimap, range)? {
+        for item in self.range(table.to_string(), range)? {
+            let item = item?;
+            if let Some(item) = selector(item.key(), item.value(), &mut || {
+                is_done = true;
+            })? {
+                out.push(item);
+            }
+            if is_done {
+                break;
+            }
+        }
+        Ok(out)
+    }
+
+    fn range_buffered_multimap<'a, T: for<'de> Deserialize<'de>>(
+        &'a self,
+        table: &str,
+        range: impl RangeBounds<&'a [u8]>,
+        selector: impl Fn(&[u8], &[u8], &mut dyn FnMut()) -> Result<Option<T>>,
+    ) -> Result<Vec<T>> {
+        let mut is_done = false;
+        let mut out = Vec::default();
+        for item in self.range_multimap(table.to_string(), range)? {
             let item = item?;
             if let Some(item) = selector(item.key(), item.value(), &mut || {
                 is_done = true;
@@ -169,6 +211,25 @@ pub trait Operations {
     }
 }
 
-pub trait Transaction: Operations {
+pub trait WriteOperations {
+    /// Insert a key for a multimap table. Must be `O(1)`.
+    fn insert_multimap(&self, table: &str, key: &[u8], value: &[u8]) -> Result<()>;
+    /// Remove a key and value from a multimap table. Returns `true` if the key/value pair was
+    /// present in the table. Must be `O(1)`.
+    fn remove_multimap(&self, table: &str, key: &[u8], value: &[u8]) -> Result<bool>;
+    /// Remove all values associated with a key in a multimap table. Must be `O(1)`.
+    fn remove_all_multimap(&self, table: &str, key: &[u8]) -> Result<()>;
+
+    /// Insert a key for a table and return the old value if it exists. Must be `O(1)`.
+    fn insert(&self, table: &str, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>>;
+    /// Remove a key from a table. Must be `O(1)`.
+    fn remove(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>>;
+    /// Remove all entries in a table.
+    fn clear(&self, table: &str) -> Result<()>;
+    /// Remove all entries in a multimap table.
+    fn clear_multimap(&self, table: &str) -> Result<()>;
+}
+
+pub trait WriteTx: ReadOperations + WriteOperations {
     fn commit(self) -> Result<()>;
 }

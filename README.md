@@ -15,6 +15,10 @@ The schema is statically defined and verifiable using structs, derive macros and
 ```rs
 use anondb::AnonDB;
 use anondb::Document;
+use anondb::KV;
+use anondb::Collection;
+use serde::Serialize;
+use serde::Deserialize;
 
 #[derive(Serialize, Deserialize, Document)]
 pub struct User {
@@ -46,15 +50,15 @@ pub struct DB<K: KV> {
 
 In this example we see a database containing `User` and `Post` documents. We define primary keys for each, as well as indices over some fields.
 
-`#[anondb(primary_key = id)]` - each collection must have a primary key that is unique. This may be a compound key over multiple fields. Queries over this index returns the document data directly. Other indices retrieve document data via indirection (2 reads instead of 1).
-`#[anondb(index = name; unique)]` - constrains usernames to be unique. Inserting a document with a username that already exists will return an error.
-`#[anondb(index = name, created_at)]` - allows sortings and retrieval by username and creation date. This compound index will automatically be used to accelerate requests for the following pseudocode queriese:
+- `#[anondb(primary_key = id)]` - each collection must have a primary key that is unique. This may be a compound key over multiple fields. Queries over this index returns the document data directly. Other indices retrieve document data via indirection (2 reads instead of 1).
+- `#[anondb(index = name; unique)]` - constrains usernames to be unique. Inserting a document with a username that already exists will return an error.
+- `#[anondb(index = name, created_at)]` - allows sortings and retrieval by username and creation date. This compound index will automatically be used to accelerate requests for the following pseudocode queries:
 
 - `{ name = "username" }`
 - `{ created_at > 19285889 }`
 - `{ name.starts_with("bo") && created_at < 29485959 }`
 
-In fact, the index on `name` is necessary only for the unique constraint. The compound index can serve most queries.
+In fact, the index on `name` is necessary only for the unique constraint. The compound index can serve most queries. Note that order matters in indices. For example, prefix matching a string works best if the string is later/last in the index. Additionally, filtering over `created_at` cannot be accelerated over an index `name, created_at`, but can be accelerated over `created_at, name`.
 
 Schemas are statically analyzed at compile time. Indices can only be formed over types that implement `SerializeLexicographic`.
 
@@ -88,6 +92,14 @@ pub struct DB<K: KV> {
 }
 
 let db = DB::<RedbKV>::in_memory(None)?;
+
+let bob_user = User {
+  id: rand::random(),
+  name: "bob".into(),
+  created_at: timestamp()
+};
+
+db.users.insert(&bob_user)?;
 
 {
     let query = User::query().name("alice");

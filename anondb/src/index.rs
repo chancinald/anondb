@@ -10,7 +10,7 @@ use anondb_kv::*;
 
 use crate::*;
 
-#[derive(Debug, Clone, PartialEq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Hash, Default, Serialize, Deserialize)]
 pub struct IndexOptions {
     pub unique: bool,    // only allow 1 unique combination of each field in the index
     pub full_docs: bool, // does the index store the full document, or just the primary key?

@@ -1,9 +1,11 @@
 mod collection;
 mod index;
+mod metadata;
 mod query;
 
 pub use collection::*;
 pub use index::*;
+use metadata::*;
 pub use query::*;
 
 #[cfg(test)]

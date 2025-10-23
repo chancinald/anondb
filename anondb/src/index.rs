@@ -144,13 +144,10 @@ where
                 break;
             }
         }
-        let scan_range = KeyRange {
-            start: min_bound,
-            end: max_bound,
-        };
+        let scan_range = GeneralRange(min_bound, max_bound);
         let table_name = self.table_name();
         let docs = if self.options.unique {
-            tx.range_buffered(&table_name, scan_range.as_ref(), |_k, v, _done| {
+            tx.range_buffered(&table_name, scan_range.as_slice(), |_k, v, _done| {
                 // v represents the primary key, we'll load the document and check it against the
                 // selector
                 let doc_bytes = if self.options.full_docs {
@@ -171,7 +168,7 @@ where
                 }
             })?
         } else {
-            tx.range_buffered_multimap(&table_name, scan_range.as_ref(), |_k, v, _done| {
+            tx.range_buffered_multimap(&table_name, scan_range.as_slice(), |_k, v, _done| {
                 // multimap index never stores full documents, always load from the primary table
                 let doc_bytes = tx.get(&self.collection_name, v)?.ok_or_else(|| {
                     anyhow::anyhow!(

@@ -4,7 +4,16 @@ use std::ops::RangeBounds;
 
 use anondb_kv::*;
 
-pub struct GeneralRange<T>(Bound<T>, Bound<T>);
+pub struct GeneralRange<T>(pub Bound<T>, pub Bound<T>);
+
+impl GeneralRange<Vec<u8>> {
+    pub fn as_slice<'a>(&'a self) -> GeneralRange<&'a [u8]> {
+        GeneralRange(
+            self.0.as_ref().map(|v| v.as_slice()),
+            self.1.as_ref().map(|v| v.as_slice()),
+        )
+    }
+}
 
 impl<T: Clone> From<std::ops::Range<T>> for GeneralRange<T> {
     fn from(value: std::ops::Range<T>) -> Self {
@@ -97,10 +106,10 @@ impl<T: SerializeLexicographic + PartialEq + PartialOrd> Into<Param> for &ParamT
         match self {
             ParamTyped::Eq(v) => Param::Eq(v.serialize_lex()),
             ParamTyped::Neq(v) => Param::Neq(v.serialize_lex()),
-            ParamTyped::Range(v) => Param::Range(KeyRange {
-                start: v.0.as_ref().map(|v| v.serialize_lex()),
-                end: v.1.as_ref().map(|v| v.serialize_lex()),
-            }),
+            ParamTyped::Range(v) => Param::Range(GeneralRange(
+                v.0.as_ref().map(|v| v.serialize_lex()),
+                v.1.as_ref().map(|v| v.serialize_lex()),
+            )),
             ParamTyped::In(v) => Param::In(v.into_iter().map(|v| v.serialize_lex()).collect()),
             ParamTyped::Nin(v) => Param::Nin(v.into_iter().map(|v| v.serialize_lex()).collect()),
         }
@@ -110,7 +119,7 @@ impl<T: SerializeLexicographic + PartialEq + PartialOrd> Into<Param> for &ParamT
 pub enum Param {
     Eq(Vec<u8>),
     Neq(Vec<u8>),
-    Range(KeyRange<Vec<u8>>),
+    Range(GeneralRange<Vec<u8>>),
     /// Match values that are present in this array
     In(Vec<Vec<u8>>),
     /// Match values that are NOT present in this array
@@ -230,10 +239,10 @@ impl Param {
     }
 
     pub fn range<T: SerializeLexicographic>(val: impl RangeBounds<T>) -> Self {
-        Self::Range(KeyRange {
-            start: val.start_bound().map(|v| v.serialize_lex()),
-            end: val.end_bound().map(|v| v.serialize_lex()),
-        })
+        Self::Range(GeneralRange(
+            val.start_bound().map(|v| v.serialize_lex()),
+            val.end_bound().map(|v| v.serialize_lex()),
+        ))
     }
 
     pub fn inn<T: SerializeLexicographic>(val: Vec<T>) -> Self {
@@ -256,49 +265,4 @@ impl Param {
             Param::Nin(v) => !v.contains(&other.to_vec()),
         }
     }
-}
-
-/// If there are any range parameters (gt, lt, etc) then a partial scan will be necessary?
-///
-/// When executing a query:
-/// 1. Look for an index prefixed by all the fields being queried
-/// 2. Look for fields that contain a unique index. Retrieve document(s) and run selector
-/// 3. Look for an index prefixed by _some_ of the fields being queried. Scan said index
-/// 4. Scan
-#[macro_export]
-macro_rules! query {
-    ($doctype:ty { $($field:ident: $param:expr),+ $(,)? }) => {{
-        // determines if a document matches the query
-        fn selector(doc: &$doctype) -> bool {
-            // $(
-            //     // let _typed_param = ParamTyped::typed(&doc.$field, $param);
-            //     let ser = <_ as ::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.$field);
-            //     let param: crate::Param = $param.into();
-            //     if !param.test(&ser) {
-            //         return false;
-            //     }
-            // )+
-            true
-        }
-
-        // compile time detection of duplicate keys in the macro
-        #[allow(dead_code)]
-        struct DuplicateCheck {
-            $($field: ()),+
-        }
-
-        // runtime detection of duplicate keys
-        let mut field_names = ::std::collections::HashMap::<String, crate::Param>::default();
-        // $(
-        //     if field_names.contains_key(stringify!($field)) {
-        //         ::anyhow::bail!("Query contains a duplicate key: \"{}\"", stringify!($field));
-        //     }
-        //     field_names.insert(stringify!($field).into(), $param.into());
-        // )+
-        //
-        crate::Query::<$doctype> {
-            field_names,
-            selector
-        }
-    }};
 }

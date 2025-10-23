@@ -1,122 +1,19 @@
 #[cfg(feature = "redb")]
 mod kv_redb;
 mod lexicographic;
+mod sort;
 
 #[cfg(feature = "redb")]
 pub use kv_redb::*;
 pub use lexicographic::*;
-use serde::Deserialize;
+pub use sort::*;
 
-use std::ops::Bound;
-use std::ops::Range;
 use std::ops::RangeBounds;
 
 use anyhow::Result;
+use serde::Deserialize;
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub enum SortDirection {
-    #[default]
-    Asc,
-    Desc,
-}
-
-impl ToString for SortDirection {
-    fn to_string(&self) -> String {
-        match self {
-            Self::Asc => "asc".into(),
-            Self::Desc => "desc".into(),
-        }
-    }
-}
-
-pub struct KeyRange<T> {
-    pub start: Bound<T>,
-    pub end: Bound<T>,
-}
-
-impl KeyRange<Vec<u8>> {
-    pub fn as_ref(&self) -> KeyRange<&[u8]> {
-        KeyRange {
-            start: self.start_bound().map(|v| v.as_slice()),
-            end: self.end_bound().map(|v| v.as_slice()),
-        }
-    }
-}
-
-impl<'a, T: RangeBounds<&'a [u8]>> From<T> for KeyRange<Vec<u8>> {
-    fn from(value: T) -> Self {
-        KeyRange {
-            start: value.start_bound().map(|v| v.to_vec()),
-            end: value.end_bound().map(|v| v.to_vec()),
-        }
-    }
-}
-
-impl<'a> Into<KeyRange<&'a [u8]>> for &'a KeyRange<Vec<u8>> {
-    fn into(self) -> KeyRange<&'a [u8]> {
-        KeyRange {
-            start: self.start_bound().map(|v| v.as_slice()),
-            end: self.end_bound().map(|v| v.as_slice()),
-        }
-    }
-}
-
-impl<T> RangeBounds<T> for KeyRange<T> {
-    fn start_bound(&self) -> Bound<&T> {
-        self.start.as_ref()
-    }
-
-    fn end_bound(&self) -> Bound<&T> {
-        self.end.as_ref()
-    }
-}
-
-/// A vector of bytes representing a lexicographically sortable set of keys. Each key is separator
-/// by a byte 0x00 to allow partial index searches.
-///
-/// Ff i have an index (id: u8, created_at: u8, name: String ) and i want to filter by
-/// { id = 0, created_at = gt(1) && lt(99) }
-///
-/// I need to sort by 00000000100000000..0000000063000000. But i need to include all keys that are
-/// longer than the provided slice. e.g. 0000000050000000a3eb398e should be included.
-///
-/// To achieve this we need a separator that is a fixed value that we can use for comparison. If we
-/// choose this byte as 0x00, then we can suffix our sort queries with 0x01 to include all longer
-/// keys.
-///
-/// This strategy adds ~1 byte of overhead per field (0 bytes for indices with 1 field).
-#[derive(Default, Clone)]
-pub struct LexicographicKey {
-    pub bytes: Vec<u8>,
-}
-
-impl LexicographicKey {
-    /// Append a slice representing a lexicographically sortable key.
-    pub fn append_key_slice(&mut self, slice: &[u8]) {
-        if !self.bytes.is_empty() {
-            self.append_separator();
-        }
-        self.bytes.extend_from_slice(slice);
-    }
-
-    /// Append a 0x01 byte that will sort all longer keys before this key.
-    pub fn append_upper_inclusive_byte(&mut self) {
-        self.bytes.push(0x01);
-    }
-
-    pub fn append_separator(&mut self) {
-        self.bytes.push(0x00);
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.bytes.is_empty()
-    }
-
-    pub fn take(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.bytes)
-    }
-}
-
+/// A standard interface for accessing entries in the KV.
 pub trait OpaqueItem {
     fn key(&self) -> &[u8];
     fn value(&self) -> &[u8];

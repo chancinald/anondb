@@ -9,5 +9,6 @@ proc-macro = true
 [dependencies]
 quote = "1.0.41"
 syn = "2.0.106"
+proc-macro2 = "1"
 
 anondb-kv = { workspace = true }

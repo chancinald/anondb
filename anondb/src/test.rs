@@ -4,13 +4,13 @@ use serde::Serialize;
 
 use crate::*;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Document)]
 pub struct TestDocument {
     pub id: u128,
     pub other: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Document)]
 pub struct OtherDocument {
     pub id: u128,
     pub other: u64,
@@ -69,9 +69,7 @@ fn should_use_non_unique_index() -> Result<()> {
 
     let out = db
         .other_collection
-        .find_many(query!(db.other_collection, OtherDocument;
-            other: Param::range(0u64..)
-        ))?
+        .find_many(OtherDocument::query().other(0..))?
         .collect::<Vec<_>>();
     assert_eq!(out.len(), 2);
     assert_eq!(out.get(0).unwrap().other, 99);
@@ -93,9 +91,7 @@ fn should_query_collection() -> Result<()> {
     {
         let out = db
             .test_collection
-            .find_one(query!(db.test_collection, TestDocument;
-                id: Param::range(80u128..)
-            ))?;
+            .find_one(TestDocument::query().id(80..).other(""))?;
         assert!(out.is_some());
         let out = out.unwrap();
         assert_eq!(out, doc);
@@ -103,17 +99,11 @@ fn should_query_collection() -> Result<()> {
     {
         let out = db
             .test_collection
-            .find_one(query!(db.test_collection, TestDocument;
-                id: Param::range(1000u128..)
-            ))?;
+            .find_one(TestDocument::query().id(1000..))?;
         assert!(out.is_none());
     }
     {
-        let out = db
-            .test_collection
-            .find_one(query!(db.test_collection, TestDocument;
-                id: Param::eq(&99u128)
-            ))?;
+        let out = db.test_collection.find_one(TestDocument::query().id(99))?;
         assert!(out.is_some());
         let out = out.unwrap();
         assert_eq!(out, doc);

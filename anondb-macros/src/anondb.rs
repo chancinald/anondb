@@ -3,8 +3,6 @@ use std::collections::HashMap;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::Result;
-use syn::punctuated::Punctuated;
-use syn::token::Comma;
 use syn::*;
 
 use super::*;
@@ -12,15 +10,11 @@ use super::*;
 /// Add functions for initializing the KV for a database, and providing references to the KV to all
 /// collections in the structure. Add additional methods for configuration safety checks, index
 /// rebuilding, compacting, etc.
-pub fn anondb(input: DeriveInput) -> Result<TokenStream> {
-    let crate_name = if std::env::var("CARGO_PKG_NAME").ok().as_deref() == Some("anondb") {
-        quote! { crate } // Use crate:: when inside anondb
-    } else {
-        quote! { ::anondb } // Use ::anondb when external
-    };
+pub fn derive(input: DeriveInput) -> Result<TokenStream> {
+    let crate_name = crate_name();
 
     // get all the collections in the db
-    let fields = parse_struct_and_fields(&input)?;
+    let fields = parse_struct_and_fields(&input, "AnonDB")?;
 
     // the primary key that is defined for each field
     let mut field_primary_keys = HashMap::<Ident, IndexDef>::default();
@@ -42,6 +36,31 @@ pub fn anondb(input: DeriveInput) -> Result<TokenStream> {
         let doc_generic = field_doc_generic.get(&field_name).expect("expected field document type to be known");
         let primary_key_parts = field_primary_keys.get(&field_name).unwrap();
         let primary_key_fields = primary_key_parts.fields.iter().map(|v| v.name.clone()).collect::<Vec<_>>();
+        let mut all_indexed_fields = HashMap::<Ident, ()>::default();
+        for index in field_indices.get(&field_name).cloned().unwrap_or_default() {
+            for field in index.fields {
+                all_indexed_fields.insert(field.name, ());
+            }
+        }
+
+        let field_extractors = all_indexed_fields.iter().map(|(k, _)| {
+            quote! {
+                if let Some(v) = query.#k.as_ref() {
+                    out.insert(stringify!(#k).to_string(), v.into());
+                }
+            }
+        });
+        let extract_index_fields = quote! {
+            {
+                fn extractor(query: & <#doc_generic as #crate_name::Queryable> ::DocumentQuery) -> std::collections::HashMap<String, #crate_name::Param> {
+                    let mut out = std::collections::HashMap::default();
+                    #(#field_extractors)*
+                    out
+                }
+                self.#field_name.set_field_extractor(extractor);
+            }
+        };
+
         let index_assignments = field_indices
             .get(&field_name)
             .cloned()
@@ -89,6 +108,7 @@ pub fn anondb(input: DeriveInput) -> Result<TokenStream> {
                 )*
                 key.take()
             }))?;
+            #extract_index_fields
             // assign all indices
             #(#index_assignments)*
         }
@@ -213,44 +233,6 @@ fn parse_attributes(field: &Field) -> Result<(IndexDef, Vec<IndexDef>)> {
         ));
     }
     Ok((primary_key_maybe.unwrap(), indices))
-}
-
-/// Parse the derive invocation, the struct, and extract the fields.
-fn parse_struct_and_fields(input: &DeriveInput) -> Result<&Punctuated<Field, Comma>> {
-    // Only allow structs
-    let data_struct = match &input.data {
-        Data::Struct(s) => s,
-        Data::Enum(_) => {
-            return Err(Error::new_spanned(
-                input,
-                "AnonDB can only be derived for structs, not enums",
-            ));
-        }
-        Data::Union(_) => {
-            return Err(Error::new_spanned(
-                input,
-                "AnonDB can only be derived for structs, not unions",
-            ));
-        }
-    };
-
-    // Only allow named fields (bracket syntax)
-    let fields = match &data_struct.fields {
-        Fields::Named(fields) => &fields.named,
-        Fields::Unnamed(_) => {
-            return Err(Error::new_spanned(
-                input,
-                "AnonDB only works with structs that have named fields (with braces {}), not tuple structs",
-            ));
-        }
-        Fields::Unit => {
-            return Err(Error::new_spanned(
-                input,
-                "AnonDB only works with structs that have named fields (with braces {}), not unit structs",
-            ));
-        }
-    };
-    Ok(fields)
 }
 
 /// extract the generic for the database structure. This generic represents the KV implementation

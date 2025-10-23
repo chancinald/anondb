@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::Bound;
 use std::ops::RangeBounds;
 
@@ -19,7 +20,7 @@ pub struct IndexOptions {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Index<T>
 where
-    T: Serialize + for<'de> Deserialize<'de>,
+    T: Serialize + for<'de> Deserialize<'de> + Queryable,
 {
     /// The name of the collection the index belongs to.
     pub collection_name: String,
@@ -33,7 +34,7 @@ where
 
 impl<T> Index<T>
 where
-    T: Serialize + for<'de> Deserialize<'de>,
+    T: Serialize + for<'de> Deserialize<'de> + Queryable,
 {
     /// Name of the table in the kv where the index will be stored. This should be a combination of
     /// the collection name and the fields being indexed.
@@ -50,13 +51,14 @@ where
     pub fn query<'tx>(
         &self,
         tx: &'tx impl ReadOperations,
-        query: Query<T>,
+        query: &T::DocumentQuery,
+        index_fields: &HashMap<String, Param>,
     ) -> Result<impl Iterator<Item = T>> {
         let mut min_key = LexicographicKey::default();
         let mut min_bound: Bound<Vec<u8>> = Bound::Unbounded;
         let mut max_bound: Bound<Vec<u8>> = Bound::Unbounded;
         for name in &self.field_names {
-            if let Some(query_param) = query.field_names.get(name) {
+            if let Some(query_param) = index_fields.get(name) {
                 // at this point min_key must be either
                 // 1. An empty vector
                 // 2. An exact match for some leading fields
@@ -162,7 +164,7 @@ where
                 };
                 // parse the bytes
                 let doc = rmp_serde::from_slice::<T>(&doc_bytes)?;
-                if (query.selector)(&doc) {
+                if doc.matches(query) {
                     Ok(Some(doc))
                 } else {
                     Ok(None)
@@ -178,7 +180,7 @@ where
                 })?;
                 // parse the bytes
                 let doc = rmp_serde::from_slice::<T>(&doc_bytes)?;
-                if (query.selector)(&doc) {
+                if doc.matches(query) {
                     Ok(Some(doc))
                 } else {
                     Ok(None)
@@ -191,13 +193,17 @@ where
     /// Determine how compatible this index is with a given query. A higher score indicates a
     /// faster query. An index that matches exactly returns a high score. An index that provides
     /// no acceleration returns 0.
-    pub fn query_compat(&self, query: &Query<T>) -> Result<usize> {
+    pub fn query_compat(
+        &self,
+        _query: &T::DocumentQuery,
+        index_params: &HashMap<String, Param>,
+    ) -> Result<usize> {
         let mut is_full_prefix = true; // are we able to utilize all of the fields in this index?
         let mut score: usize = 0;
         for (i, name) in self.field_names.iter().enumerate() {
             // is this the final field in the index?
             let is_last_field = i == self.field_names.len() - 1;
-            if let Some(query_param) = query.field_names.get(name) {
+            if let Some(query_param) = index_params.get(name) {
                 score += 1;
                 match query_param {
                     Param::Eq(_) => {

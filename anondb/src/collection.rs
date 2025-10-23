@@ -9,20 +9,9 @@ use serde::Serialize;
 use super::*;
 use anondb_kv::*;
 
-pub trait Queryable {
-    type Document;
-}
-
-impl<T, K: KV> Queryable for Collection<T, K>
-where
-    T: 'static + Serialize + for<'de> Deserialize<'de>,
-{
-    type Document = T;
-}
-
 pub struct Collection<T, K: KV>
 where
-    T: 'static + Serialize + for<'de> Deserialize<'de>,
+    T: 'static + Serialize + for<'de> Deserialize<'de> + Queryable,
 {
     kv: Option<Arc<K>>,
     name: Option<String>,
@@ -31,11 +20,13 @@ where
     indices: Vec<Arc<Index<T>>>,
     /// Extractor function to get a primary key from an instance of T
     primary_key_index: Option<Arc<Index<T>>>,
+    /// Take a query and extract all fields that are index compatible
+    extract_index_fields: Option<fn(&T::DocumentQuery) -> HashMap<String, Param>>,
 }
 
 impl<T, K: KV> Collection<T, K>
 where
-    T: 'static + Serialize + for<'de> Deserialize<'de>,
+    T: 'static + Serialize + for<'de> Deserialize<'de> + Queryable,
 {
     /// Initialize a new collection
     pub fn new() -> Self {
@@ -44,6 +35,7 @@ where
             kv: None,
             name: None,
             primary_key_index: None,
+            extract_index_fields: None,
             indices: Vec::default(),
         }
     }
@@ -77,6 +69,20 @@ where
         self.primary_key_index
             .as_ref()
             .expect("No primary key index set!")
+    }
+
+    pub fn set_field_extractor(
+        &mut self,
+        extractor: fn(&T::DocumentQuery) -> HashMap<String, Param>,
+    ) {
+        self.extract_index_fields = Some(extractor);
+    }
+
+    pub fn extract_index_fields(&self, query: &T::DocumentQuery) -> HashMap<String, Param> {
+        (self.extract_index_fields.expect(&format!(
+            "In collection \"{}\", no index field extractor set!",
+            self.name()
+        )))(query)
     }
 
     /// Set the name of the collection. This should be automatically invoked by the AnonDB proc
@@ -256,12 +262,17 @@ where
         Ok(())
     }
 
-    pub fn find_many(&self, query: Query<T>) -> Result<impl Iterator<Item = T>> {
-        let primary_index_score = self.primary_key_index().query_compat(&query)?;
+    pub fn find_many(&self, query: T::DocumentQuery) -> Result<impl Iterator<Item = T>> {
+        let index_fields = self.extract_index_fields(&query);
 
         let mut scores = BTreeMap::default();
+        let primary_index_score = self
+            .primary_key_index()
+            .query_compat(&query, &index_fields)?;
+        scores.insert(primary_index_score, self.primary_key_index().clone());
+
         for index in self.indices() {
-            let score = index.query_compat(&query)?;
+            let score = index.query_compat(&query, &index_fields)?;
             scores.insert(score, index.clone());
         }
         let (score, best_index) = scores
@@ -275,15 +286,17 @@ where
         );
         let tx = self.kv().read_tx()?;
         Ok(best_index
-            .query(&tx, query)?
+            .query(&tx, &query, &index_fields)?
             .collect::<Vec<_>>()
             .into_iter())
     }
 
-    pub fn find_one(&self, query: Query<T>) -> Result<Option<T>> {
+    pub fn find_one(&self, query: T::DocumentQuery) -> Result<Option<T>> {
+        let index_fields = self.extract_index_fields(&query);
+
         let mut scores = BTreeMap::default();
         for index in self.indices() {
-            let score = index.query_compat(&query)?;
+            let score = index.query_compat(&query, &index_fields)?;
             scores.insert(score, index.clone());
         }
         if let Some((score, best_index)) = scores.last_key_value() {
@@ -293,7 +306,7 @@ where
                 score
             );
             let tx = self.kv().read_tx()?;
-            let mut out = best_index.query(&tx, query)?;
+            let mut out = best_index.query(&tx, &query, &index_fields)?;
             Ok(out.next())
         } else {
             unreachable!("no index found!");
@@ -303,7 +316,7 @@ where
 
 impl<T, K: KV> Default for Collection<T, K>
 where
-    T: 'static + Serialize + for<'de> Deserialize<'de>,
+    T: 'static + Serialize + for<'de> Deserialize<'de> + Queryable,
 {
     fn default() -> Self {
         Self {
@@ -312,6 +325,7 @@ where
             kv: None,
             name: None,
             primary_key_index: None,
+            extract_index_fields: None,
             indices: Vec::default(),
         }
     }

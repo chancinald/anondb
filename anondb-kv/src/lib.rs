@@ -8,6 +8,7 @@ pub use lexicographic::*;
 use serde::Deserialize;
 
 use std::ops::Bound;
+use std::ops::Range;
 use std::ops::RangeBounds;
 
 use anyhow::Result;

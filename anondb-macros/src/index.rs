@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use anondb_kv::SortDirection;
-
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::punctuated::Punctuated;
 use syn::*;
+
+use anondb_kv::SortDirection;
 
 /// Represents a single field in an index.
 #[derive(Clone)]

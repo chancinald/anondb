@@ -188,14 +188,7 @@ impl<const N: usize> SerializeLexicographic for [u8; N] {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
-    fn rand_utf8(len: usize) -> String {
-        vec![char::default(); len]
-            .into_iter()
-            .map(|_| rand::random::<char>())
-            .collect()
-    }
+    use crate::*;
 
     #[test]
     fn should_sort_strings() {

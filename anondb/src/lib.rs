@@ -26,3 +26,11 @@ pub trait Queryable {
     /// Test if a document matches a query
     fn matches(&self, query: &Self::DocumentQuery) -> bool;
 }
+
+#[cfg(test)]
+pub fn rand_utf8(len: usize) -> String {
+    vec![char::default(); len]
+        .into_iter()
+        .map(|_| rand::random::<char>())
+        .collect()
+}

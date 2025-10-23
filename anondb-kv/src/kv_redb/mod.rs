@@ -29,16 +29,6 @@ pub struct RedbKV {
     db: Database,
 }
 
-impl RedbKV {
-    fn read(&self) -> Result<ReadTransaction> {
-        Ok(self.db.begin_read()?)
-    }
-
-    fn write(&self) -> Result<WriteTransaction> {
-        Ok(self.db.begin_write()?)
-    }
-}
-
 impl KV for RedbKV {
     type ReadTransaction = RedbReadTransaction;
     type WriteTransaction = RedbWriteTransaction;
@@ -61,7 +51,7 @@ impl KV for RedbKV {
     where
         S: Fn(&[u8], &[u8]) -> Result<bool>,
     {
-        for item in self.range(table.to_string(), ..)? {
+        for item in self.range(table, ..)? {
             let item = item?;
             if !predicate(item.key(), item.value())? {
                 break;
@@ -80,44 +70,8 @@ impl KV for RedbKV {
         Ok(RedbReadTransaction {
             read: self.db.begin_read()?,
             tables: RwLock::new(HashMap::default()),
+            multimap_tables: RwLock::new(HashMap::default()),
         })
-    }
-}
-
-impl WriteOperations for RedbKV {
-    fn insert_multimap(&self, table: &str, key: &[u8], value: &[u8]) -> Result<()> {
-        let tx: <Self as KV>::WriteTransaction = self.write_tx()?;
-        tx.insert_multimap(table, key, value)
-    }
-
-    fn remove_multimap(&self, table: &str, key: &[u8], value: &[u8]) -> Result<bool> {
-        let tx: <Self as KV>::WriteTransaction = self.write_tx()?;
-        tx.remove_multimap(table, key, value)
-    }
-
-    fn remove_all_multimap(&self, table: &str, key: &[u8]) -> Result<()> {
-        let tx: <Self as KV>::WriteTransaction = self.write_tx()?;
-        tx.remove_all_multimap(table, key)
-    }
-
-    fn insert(&self, table: &str, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>> {
-        let tx: <Self as KV>::WriteTransaction = self.write_tx()?;
-        tx.insert(table, key, value)
-    }
-
-    fn remove(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let tx: <Self as KV>::WriteTransaction = self.write_tx()?;
-        tx.remove(table, key)
-    }
-
-    fn clear(&self, table: &str) -> Result<()> {
-        let tx: <Self as KV>::WriteTransaction = self.write_tx()?;
-        tx.clear(table)
-    }
-
-    fn clear_multimap(&self, table: &str) -> Result<()> {
-        let tx: <Self as KV>::WriteTransaction = self.write_tx()?;
-        tx.clear_multimap(table)
     }
 }
 
@@ -129,7 +83,10 @@ impl ReadOperations for RedbKV {
         key: &[u8],
     ) -> Result<impl Iterator<Item = Result<impl OpaqueItem>>> {
         let tx: <Self as KV>::ReadTransaction = self.read_tx()?;
-        let table = tx.read.open_multimap_table(tabledef_multimap(table))?;
+        let table = match tx.read_multimap_table(table)? {
+            Some(t) => t,
+            None => return Ok(MaybeEmptyIter::default()),
+        };
         let inner_iter = table.get(key)?;
         Ok(RedbReadIter {
             data: Arc::new(key.to_vec()),
@@ -140,7 +97,13 @@ impl ReadOperations for RedbKV {
                     item: (key.into(), val.into()),
                 })
             },
-        })
+        }
+        .into())
+    }
+
+    fn count_multimap(&self, table: &str) -> Result<u64> {
+        let tx: <Self as KV>::ReadTransaction = self.read_tx()?;
+        tx.count_multimap(table)
     }
 
     fn count(&self, table: &str) -> Result<u64> {
@@ -155,11 +118,14 @@ impl ReadOperations for RedbKV {
 
     fn range<'a>(
         &'a self,
-        table: String,
+        table: &str,
         range: impl RangeBounds<&'a [u8]>,
     ) -> Result<impl Iterator<Item = Result<impl OpaqueItem>> + 'a> {
         let tx: <Self as KV>::ReadTransaction = self.read_tx()?;
-        let table = tx.read.open_table(tabledef(&table))?;
+        let table = match tx.read_table(&table)? {
+            Some(t) => t,
+            None => return Ok(MaybeEmptyIter::default()),
+        };
         let inner_iter = table.range(range)?;
         Ok(RedbReadIter {
             data: Arc::new(()),
@@ -170,16 +136,20 @@ impl ReadOperations for RedbKV {
                     item: (k.into(), v.into()),
                 })
             },
-        })
+        }
+        .into())
     }
 
     fn range_multimap<'a>(
         &'a self,
-        table: String,
+        table: &str,
         range: impl RangeBounds<&'a [u8]>,
     ) -> Result<impl Iterator<Item = Result<impl OpaqueItem>> + 'a> {
         let tx: <Self as KV>::ReadTransaction = self.read_tx()?;
-        let table = tx.read.open_multimap_table(tabledef_multimap(&table))?;
+        let table = match tx.read_multimap_table(&table)? {
+            Some(t) => t,
+            None => return Ok(MaybeEmptyIter::default()),
+        };
         let inner_iter = FlatMapFallible::from(table.range(range)?.map(|v| {
             let (key, vals) = v?;
             let key = Arc::new(key);
@@ -194,6 +164,7 @@ impl ReadOperations for RedbKV {
                     item: (k.into(), v.into()),
                 })
             },
-        })
+        }
+        .into())
     }
 }

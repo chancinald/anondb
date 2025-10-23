@@ -2,6 +2,35 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
+pub struct MaybeEmptyIter<I: Iterator> {
+    inner_iter: Option<I>,
+}
+
+impl<I: Iterator> Default for MaybeEmptyIter<I> {
+    fn default() -> Self {
+        Self { inner_iter: None }
+    }
+}
+
+impl<I: Iterator> From<I> for MaybeEmptyIter<I> {
+    fn from(value: I) -> Self {
+        Self {
+            inner_iter: Some(value),
+        }
+    }
+}
+
+impl<I: Iterator> Iterator for MaybeEmptyIter<I> {
+    type Item = I::Item;
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(iter) = self.inner_iter.as_mut() {
+            iter.next()
+        } else {
+            None
+        }
+    }
+}
+
 /// A mapping utility for fallible iterators.
 pub struct RedbReadIter<T, I: Iterator, D> {
     pub data: Arc<D>,

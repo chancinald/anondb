@@ -53,3 +53,6 @@ impl LexicographicKey {
         std::mem::take(&mut self.bytes)
     }
 }
+
+#[cfg(test)]
+mod test {}

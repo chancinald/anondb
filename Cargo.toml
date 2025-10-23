@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["anondb", "anondb-kv", "anondb-macros"]
+members = ["anondb", "anondb-kv", "anondb-macros", "domacro"]
 
 [workspace.dependencies]
 anyhow = "1"
@@ -10,8 +10,12 @@ log = "0"
 anondb = "0"
 anondb-macros = "0"
 anondb-kv = "0"
+domacro = "0"
+
+rand = "0"
 
 [patch.crates-io]
 anondb = { path = "./anondb" }
 anondb-macros = { path = "./anondb-macros" }
 anondb-kv = { path = "./anondb-kv" }
+domacro = { path = "./domacro" }

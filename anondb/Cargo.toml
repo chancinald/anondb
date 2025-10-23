@@ -19,4 +19,5 @@ anyhow = { workspace = true }
 anondb-kv = { workspace = true }
 anondb-macros = { workspace = true }
 
-
+[dev-dependencies]
+rand = { workspace = true }

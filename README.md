@@ -2,6 +2,10 @@
 
 An embedded document oriented NoSQL database implemented over a generic KV trait.
 
+### MSRV
+
+This crate targets Rust Edition 2024 with MSRV 1.85.
+
 ### Database
 
 Each `database` contains collections of `documents`. Each `document` is `Serialize + Deserialize`. Each collection may specify `indices`. Each `index` specifies 1 or more field names from the `document`. Each `field` in an `index` must by a type that implements `SerializeLexicographic` (implementations are provided for most types).

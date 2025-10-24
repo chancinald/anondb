@@ -66,98 +66,74 @@ where
         index_fields: &HashMap<String, Param>,
     ) -> Result<impl Iterator<Item = T>> {
         let mut min_key = LexicographicKey::default();
+        let mut max_key = LexicographicKey::default();
         let mut min_bound: Bound<Vec<u8>> = Bound::Unbounded;
         let mut max_bound: Bound<Vec<u8>> = Bound::Unbounded;
         for (name, lex_stats) in &self.field_names {
             if let Some(query_param) = index_fields.get(name) {
-                // at this point min_key must be either
-                // 1. An empty vector
-                // 2. An exact match for some leading fields
                 match query_param {
                     Param::Eq(v) => {
                         min_key.append_key_slice(v);
+                        max_key.append_key_slice(v);
+                        min_bound = Bound::Included(min_key.to_vec());
+                        max_bound = Bound::Included({
+                            let mut v = max_key.clone();
+                            v.append_upper_inclusive_byte();
+                            v.take()
+                        });
                     }
                     Param::In(_v) => {
                         unimplemented!()
                     }
                     Param::Nin(_) | Param::Neq(_) => {
-                        // not equal and not in operators cannot be accelerated by indices and must
-                        // always be scanned
-                        if !min_key.is_empty() {
-                            min_bound = Bound::Included(min_key.to_vec());
-                            min_key.append_upper_inclusive_byte();
-                            max_bound = Bound::Included(min_key.take());
-                        }
                         break;
                     }
                     Param::Range(v) => {
-                        match v.end_bound() {
-                            Bound::Unbounded => {
-                                if !min_key.is_empty() {
-                                    let mut max_key = min_key.clone();
-                                    max_key.append_upper_inclusive_byte();
-                                    max_bound = Bound::Included(max_key.take());
-                                }
-                            }
-                            Bound::Included(v) => {
-                                let mut max_key = min_key.clone();
-                                max_key.append_key_slice(&v);
-                                max_key.append_upper_inclusive_byte();
-                                max_bound = Bound::Included(max_key.take());
-                            }
-                            Bound::Excluded(v) => {
-                                // again, we can't exclude v, it will naturally be included because
-                                // the upper inclusive byte forces longer byte vectors to sort
-                                // before the max_key to support partial index use
-                                //
-                                // extraneous documents will be filtered in second stage
-                                let mut max_key = min_key.clone();
-                                max_key.append_key_slice(&v);
-                                // TODO: check if we're on the last field of the index and don't
-                                // append this to avoid extraneous document retrieval on full index
-                                // use
-                                max_key.append_upper_inclusive_byte();
-                                max_bound = Bound::Excluded(max_key.take());
-                            }
-                        }
                         match v.start_bound() {
-                            Bound::Unbounded => {
-                                if !min_key.is_empty() {
-                                    min_bound = Bound::Included(min_key.take());
-                                } else {
-                                    // otherwise min_bound is unbounded
-                                }
-                            }
-                            Bound::Included(v) => {
+                            Bound::Unbounded => {}
+                            Bound::Included(v) | Bound::Excluded(v) => {
+                                // we always treat it as included to account for earlier fields
+                                // that may exist in the key
                                 min_key.append_key_slice(&v);
                                 min_bound = Bound::Included(min_key.take());
                             }
-                            Bound::Excluded(v) => {
-                                // this doesn't always exclude v because all longer
-                                // keys will sort after v. So if we're using only part of this
-                                // index this bound will not be exclusive
-                                //
-                                // extraneous documents will be filtered in second stage
-                                min_key.append_key_slice(&v);
-                                min_bound = Bound::Excluded(min_key.take());
+                        }
+                        match v.end_bound() {
+                            Bound::Unbounded => {
+                                max_bound = Bound::Unbounded;
+                            }
+                            Bound::Included(v) | Bound::Excluded(v) => {
+                                max_key.append_key_slice(&v);
+                                max_key.append_upper_inclusive_byte();
+                                max_bound = Bound::Included(max_key.take());
                             }
                         }
                         break;
                     }
                 }
             } else {
-                // we're using only part of the index, we'll suffix the min and max bounds with a
-                // byte that will include all subsequent entries
-                if !min_key.is_empty() {
-                    // we have an exact partial filter on our index, create a range from it
+                // the query isn't using this field of the index. If this field is constant width
+                // we can continue attempting to use the index.
+                if let Some(width) = lex_stats.fixed_width {
+                    let min = vec![0u8; width as usize];
+                    let max = vec![u8::MAX; width as usize];
+                    min_key.append_key_slice(&min);
+                    max_key.append_key_slice(&max);
                     min_bound = Bound::Included(min_key.to_vec());
-                    min_key.append_upper_inclusive_byte();
-                    max_bound = Bound::Included(min_key.take());
+                    max_bound = Bound::Included({
+                        let mut v = max_key.clone();
+                        v.append_upper_inclusive_byte();
+                        v.take()
+                    });
+                    continue;
                 }
+
+                // otherwise we have to halt and begin scanning
                 break;
             }
         }
         let scan_range = GeneralRange(min_bound, max_bound);
+        println!("{:?}", scan_range);
         let table_name = self.table_name();
         let docs = if self.options.unique {
             tx.range_buffered(&table_name, scan_range.as_slice(), |_k, v, _done| {

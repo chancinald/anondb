@@ -1,6 +1,7 @@
 mod insert;
 mod misc;
 mod primary_key;
+mod range;
 mod unique_index;
 
 use anyhow::Result;

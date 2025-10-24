@@ -24,7 +24,7 @@
 /// This strategy adds ~1 byte of overhead per field (0 bytes for indices with 1 field).
 #[derive(Default, Clone)]
 pub struct LexicographicKey {
-    pub bytes: Vec<u8>,
+    bytes: Vec<u8>,
 }
 
 impl LexicographicKey {
@@ -52,7 +52,33 @@ impl LexicographicKey {
     pub fn take(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.bytes)
     }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.bytes.clone()
+    }
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use super::*;
+
+    #[test]
+    fn key_sort_longer_vec_within() {
+        let mut start_key = LexicographicKey::default();
+        start_key.append_key_slice(&[0u8; 32]);
+        let mut end_key = LexicographicKey::default();
+        end_key.append_key_slice(&[u8::MAX; 32]);
+        end_key.append_upper_inclusive_byte();
+
+        let mut expected_within = LexicographicKey::default();
+        expected_within.append_key_slice(&[5u8; 32]);
+        expected_within.append_key_slice(&[99u8; 32]);
+
+        let range = start_key.as_slice()..end_key.as_slice();
+        assert!(range.contains(&expected_within.as_slice()));
+    }
+}

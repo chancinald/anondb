@@ -73,7 +73,7 @@ where
                         // not equal and not in operators cannot be accelerated by indices and must
                         // always be scanned
                         if !min_key.is_empty() {
-                            min_bound = Bound::Included(min_key.bytes.clone());
+                            min_bound = Bound::Included(min_key.to_vec());
                             min_key.append_upper_inclusive_byte();
                             max_bound = Bound::Included(min_key.take());
                         }
@@ -137,7 +137,7 @@ where
                 // byte that will include all subsequent entries
                 if !min_key.is_empty() {
                     // we have an exact partial filter on our index, create a range from it
-                    min_bound = Bound::Included(min_key.bytes.clone());
+                    min_bound = Bound::Included(min_key.to_vec());
                     min_key.append_upper_inclusive_byte();
                     max_bound = Bound::Included(min_key.take());
                 }

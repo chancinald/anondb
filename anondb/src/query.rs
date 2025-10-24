@@ -4,6 +4,7 @@ use std::ops::RangeBounds;
 
 use anondb_kv::*;
 
+#[derive(Debug)]
 pub struct GeneralRange<T>(pub Bound<T>, pub Bound<T>);
 
 impl GeneralRange<Vec<u8>> {
@@ -67,6 +68,7 @@ impl<T> RangeBounds<T> for GeneralRange<T> {
     }
 }
 
+#[derive(Debug)]
 pub enum ParamTyped<T: PartialEq + PartialOrd> {
     Eq(T),
     Neq(T),
@@ -116,6 +118,7 @@ impl<T: SerializeLexicographic + PartialEq + PartialOrd> Into<Param> for &ParamT
     }
 }
 
+#[derive(Debug)]
 pub enum Param {
     Eq(Vec<u8>),
     Neq(Vec<u8>),

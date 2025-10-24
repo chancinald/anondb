@@ -1,4 +1,6 @@
-/// Allow a type to be serialized to lexicographically comparable bytes
+use std::marker::PhantomData;
+
+/// Allow a type to be serializeo to lexicographically comparable bytes
 pub trait SerializeLexicographic {
     fn serialize_lex(&self) -> Vec<u8>;
     fn min() -> Vec<u8>;
@@ -7,6 +9,35 @@ pub trait SerializeLexicographic {
     fn fixed_width() -> Option<u32> {
         None
     }
+    fn stats(&self) -> LexStats {
+        LexStats {
+            min: Self::min(),
+            max: Self::max(),
+            fixed_width: Self::fixed_width(),
+        }
+    }
+}
+
+impl<T: SerializeLexicographic> SerializeLexicographic for PhantomData<T> {
+    fn serialize_lex(&self) -> Vec<u8> {
+        unreachable!()
+    }
+    fn min() -> Vec<u8> {
+        T::min()
+    }
+    fn max() -> Option<Vec<u8>> {
+        T::max()
+    }
+    fn fixed_width() -> Option<u32> {
+        T::fixed_width()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LexStats {
+    pub min: Vec<u8>,
+    pub max: Option<Vec<u8>>,
+    pub fixed_width: Option<u32>,
 }
 
 /// Unit type for compiler support. Should never be used at runtime.
@@ -33,11 +64,15 @@ impl<T: SerializeLexicographic> SerializeLexicographic for Option<T> {
     }
 
     fn min() -> Vec<u8> {
-        vec![0x00]
+        vec![vec![0x00], T::min()].concat()
     }
 
     fn max() -> Option<Vec<u8>> {
         T::max().map(|v| vec![vec![0x01], v].concat())
+    }
+
+    fn fixed_width() -> Option<u32> {
+        T::fixed_width().map(|v| v + 1)
     }
 }
 

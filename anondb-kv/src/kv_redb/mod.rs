@@ -25,6 +25,7 @@ fn tabledef_multimap(name: &str) -> MultimapTableDefinition<&'static [u8], &'sta
     MultimapTableDefinition::new(name)
 }
 
+#[derive(Debug)]
 pub struct RedbKV {
     db: Database,
 }

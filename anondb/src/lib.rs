@@ -18,6 +18,7 @@ pub use anondb_macros::Document;
 
 pub trait Queryable {
     type DocumentQuery: Default;
+    type DocumentPhantom;
 
     fn query() -> Self::DocumentQuery {
         Self::DocumentQuery::default()

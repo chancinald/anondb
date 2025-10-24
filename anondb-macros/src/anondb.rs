@@ -31,6 +31,19 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         field_doc_generic.insert(field_ident.clone(), doc_generic.clone());
     }
 
+    for (collection_name, indices) in &field_indices {
+        for index in indices {
+            for (option_name, _) in &index.options {
+                if option_name.to_string() == "primary" {
+                    return Err(Error::new_spanned(
+                        option_name,
+                        format!("Custom indices may not be primary. Use the primary_key attribute instead."),
+                    ));
+                }
+            }
+        }
+    }
+
     let assign_collection_vars = fields.iter().map(|f| {
         let field_name = f.ident.clone().unwrap();
         let doc_generic = field_doc_generic.get(&field_name).expect("expected field document type to be known");
@@ -72,18 +85,26 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                     .iter()
                     .map(|i| i.name.clone())
                     .collect::<Vec<_>>();
+
                 let options = index.options.iter().map(|(k, v)| quote! { #k: #v }).collect::<Vec<_>>();
                 quote! {
                     self.#field_name.add_index(
                         #crate_name::Index {
                             collection_name: stringify!(#field_name).into(),
-                            field_names: vec![#(stringify!(#fields).to_string(),)*],
+                            field_names: vec![
+                                #(
+                                    (
+                                        stringify!(#fields).to_string(),
+                                        <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields ().stats()
+                                    ),
+                                )*
+                            ],
                             serialize: |doc: &#doc_generic| -> Vec<u8> {
                                 let mut key = ::anondb_kv::LexicographicKey::default();
-                                #(
+                                #({
                                     let bytes = <_ as ::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#fields);
                                     key.append_key_slice(bytes.as_slice());
-                                )*
+                                })*
                                 key.take()
                             },
                             options: #crate_name::IndexOptions {
@@ -100,7 +121,13 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             // assign the collection name as a string
             self.#field_name.set_name(stringify!(#field_name).into())?;
             // assign the primary key
-            self.#field_name.set_primary_key((vec![#(stringify!(#primary_key_fields).to_string()),*], |doc: &#doc_generic| -> Vec<u8> {
+            self.#field_name.set_primary_key((
+                    vec![#(
+                        (
+                            stringify!(#primary_key_fields).to_string(), 
+                            <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#primary_key_fields ().stats()
+                         )
+                        ),*], |doc: &#doc_generic| -> Vec<u8> {
                 let mut key = ::anondb_kv::LexicographicKey::default();
                 #(
                     let bytes = <_ as ::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#primary_key_fields);

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Bound;
 use std::ops::RangeBounds;
@@ -12,8 +13,9 @@ use crate::*;
 
 #[derive(Debug, Clone, PartialEq, Hash, Default, Serialize, Deserialize)]
 pub struct IndexOptions {
-    pub unique: bool,    // only allow 1 unique combination of each field in the index
-    pub full_docs: bool, // does the index store the full document, or just the primary key?
+    pub unique: bool, // only allow 1 unique combination of each field in the index
+    pub primary: bool, // does the index store the full document in a table matching the collection
+                      // name
 }
 
 // TODO: explicitly check and disallow duplicate field names
@@ -24,8 +26,8 @@ where
 {
     /// The name of the collection the index belongs to.
     pub collection_name: String,
-    /// The field names of the document type.
-    pub field_names: Vec<String>,
+    /// The field names of the document type along with the byte length (if constant)
+    pub field_names: Vec<(String, LexStats)>,
     /// Take a document of type `T` and serialize it into a lexicographically sortable key
     pub serialize: fn(&T) -> Vec<u8>,
     /// Options for the index
@@ -39,14 +41,23 @@ where
     /// Name of the table in the kv where the index will be stored. This should be a combination of
     /// the collection name and the fields being indexed.
     pub fn table_name(&self) -> String {
-        format!(
-            "{}_{}{}",
-            self.collection_name,
-            self.field_names.join("_"),
-            if self.options.unique { "_unique" } else { "" }
-        )
+        if self.options.primary {
+            self.collection_name.to_string()
+        } else {
+            format!(
+                "{}_{}{}",
+                self.collection_name,
+                self.field_names
+                    .iter()
+                    .map(|(name, _)| name.to_string())
+                    .collect::<Vec<_>>()
+                    .join("_"),
+                if self.options.unique { "_unique" } else { "" }
+            )
+        }
     }
 
+    /// TODO: allow variable length serialization only as the final element in an index
     /// Accept a set of field keys as lexicographically serialized bytes
     pub fn query<'tx>(
         &self,
@@ -57,7 +68,7 @@ where
         let mut min_key = LexicographicKey::default();
         let mut min_bound: Bound<Vec<u8>> = Bound::Unbounded;
         let mut max_bound: Bound<Vec<u8>> = Bound::Unbounded;
-        for name in &self.field_names {
+        for (name, lex_stats) in &self.field_names {
             if let Some(query_param) = index_fields.get(name) {
                 // at this point min_key must be either
                 // 1. An empty vector
@@ -80,33 +91,13 @@ where
                         break;
                     }
                     Param::Range(v) => {
-                        match v.start_bound() {
-                            Bound::Unbounded => {
-                                if !min_key.is_empty() {
-                                    min_bound = Bound::Included(min_key.take());
-                                } else {
-                                    // otherwise min_bound is unbounded
-                                }
-                            }
-                            Bound::Included(v) => {
-                                min_key.append_key_slice(&v);
-                                min_bound = Bound::Included(min_key.take());
-                            }
-                            Bound::Excluded(v) => {
-                                // this doesn't always exclude v because all longer
-                                // keys will sort after v. So if we're using only part of this
-                                // index this bound will not be exclusive
-                                //
-                                // extraneous documents will be filtered in second stage
-                                min_key.append_key_slice(&v);
-                                min_bound = Bound::Excluded(min_key.take());
-                            }
-                        }
                         match v.end_bound() {
                             Bound::Unbounded => {
-                                let mut max_key = min_key.clone();
-                                max_key.append_upper_inclusive_byte();
-                                max_bound = Bound::Included(max_key.take());
+                                if !min_key.is_empty() {
+                                    let mut max_key = min_key.clone();
+                                    max_key.append_upper_inclusive_byte();
+                                    max_bound = Bound::Included(max_key.take());
+                                }
                             }
                             Bound::Included(v) => {
                                 let mut max_key = min_key.clone();
@@ -127,6 +118,28 @@ where
                                 // use
                                 max_key.append_upper_inclusive_byte();
                                 max_bound = Bound::Excluded(max_key.take());
+                            }
+                        }
+                        match v.start_bound() {
+                            Bound::Unbounded => {
+                                if !min_key.is_empty() {
+                                    min_bound = Bound::Included(min_key.take());
+                                } else {
+                                    // otherwise min_bound is unbounded
+                                }
+                            }
+                            Bound::Included(v) => {
+                                min_key.append_key_slice(&v);
+                                min_bound = Bound::Included(min_key.take());
+                            }
+                            Bound::Excluded(v) => {
+                                // this doesn't always exclude v because all longer
+                                // keys will sort after v. So if we're using only part of this
+                                // index this bound will not be exclusive
+                                //
+                                // extraneous documents will be filtered in second stage
+                                min_key.append_key_slice(&v);
+                                min_bound = Bound::Excluded(min_key.take());
                             }
                         }
                         break;
@@ -150,7 +163,7 @@ where
             tx.range_buffered(&table_name, scan_range.as_slice(), |_k, v, _done| {
                 // v represents the primary key, we'll load the document and check it against the
                 // selector
-                let doc_bytes = if self.options.full_docs {
+                let doc_bytes = if self.options.primary {
                     v.to_vec()
                 } else {
                     tx.get(&self.collection_name, v)?.ok_or_else(|| {
@@ -197,7 +210,7 @@ where
     ) -> Result<usize> {
         let mut is_full_prefix = true; // are we able to utilize all of the fields in this index?
         let mut score: usize = 0;
-        for (i, name) in self.field_names.iter().enumerate() {
+        for (i, (name, lex_stats)) in self.field_names.iter().enumerate() {
             // is this the final field in the index?
             let is_last_field = i == self.field_names.len() - 1;
             if let Some(query_param) = index_params.get(name) {
@@ -236,6 +249,12 @@ where
                     }
                 }
             }
+            if lex_stats.fixed_width.is_none() {
+                if !is_last_field {
+                    is_full_prefix = false;
+                }
+                break;
+            }
         }
         if is_full_prefix {
             score = score.saturating_mul(10000);
@@ -246,17 +265,23 @@ where
     /// Take a document and a primary key and insert into a collection.
     pub fn insert(&self, tx: &impl WriteTx, doc: &T, primary_key: &[u8]) -> Result<()> {
         let key = (self.serialize)(doc);
+        let table_name = self.table_name();
+        let bytes = if self.options.primary {
+            Cow::from(rmp_serde::to_vec_named(doc)?)
+        } else {
+            Cow::from(primary_key)
+        };
         if self.options.unique {
-            if tx.get(&self.table_name(), key.as_slice())?.is_some() {
+            if tx.get(&table_name, key.as_slice())?.is_some() {
                 anyhow::bail!(
                     "Collection \"{}\" index \"{}\" cannot insert document, uniqueness constraint violated",
                     self.collection_name,
-                    self.table_name()
+                    table_name
                 );
             }
-            tx.insert(&self.table_name(), key.as_slice(), primary_key)?;
+            tx.insert(&table_name, key.as_slice(), &bytes)?;
         } else {
-            tx.insert_multimap(&self.table_name(), key.as_slice(), primary_key)?;
+            tx.insert_multimap(&table_name, key.as_slice(), &bytes)?;
         }
         Ok(())
     }

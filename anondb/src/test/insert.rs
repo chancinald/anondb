@@ -1,8 +1,4 @@
-use anyhow::Result;
-use serde::Deserialize;
-use serde::Serialize;
-
-use crate::*;
+use super::*;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Document)]
 pub struct TestDocument {

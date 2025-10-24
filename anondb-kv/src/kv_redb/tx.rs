@@ -174,17 +174,14 @@ impl ReadOperations for RedbReadTransaction {
             None => return Ok(MaybeEmptyIter::default()),
         };
         let inner_iter = table.range(range)?;
-        Ok(RedbReadIter {
-            data: Arc::new(()),
-            inner_iter,
-            map_fn: |_data, item| {
+        Ok(inner_iter
+            .map(|item| {
                 let (k, v) = item?;
                 Ok(RedbItem {
                     item: (k.into(), v.into()),
                 })
-            },
-        }
-        .into())
+            })
+            .into())
     }
 
     fn range_multimap<'a>(
@@ -201,17 +198,14 @@ impl ReadOperations for RedbReadTransaction {
             let key = Arc::new(key);
             Ok(vals.map(move |v| Ok((key.clone(), v?))))
         }));
-        Ok(RedbReadIter {
-            data: Arc::new(()),
-            inner_iter,
-            map_fn: |_data, item| {
+        Ok(inner_iter
+            .map(|item| {
                 let (k, v) = item?;
                 Ok(RedbItem {
                     item: (k.into(), v.into()),
                 })
-            },
-        }
-        .into())
+            })
+            .into())
     }
 }
 

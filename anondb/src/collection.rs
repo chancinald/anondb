@@ -9,6 +9,7 @@ use serde::Serialize;
 use super::*;
 use anondb_kv::*;
 
+#[derive(Debug)]
 pub struct Collection<T, K: KV>
 where
     T: 'static + Serialize + for<'de> Deserialize<'de> + Queryable,
@@ -46,7 +47,10 @@ where
     }
 
     /// A function to set the primary key without consuming `self`. Used in the AnonDB proc macro.
-    pub fn set_primary_key(&mut self, primary_key: (Vec<String>, fn(&T) -> Vec<u8>)) -> Result<()> {
+    pub fn set_primary_key(
+        &mut self,
+        primary_key: (Vec<(String, LexStats)>, fn(&T) -> Vec<u8>),
+    ) -> Result<()> {
         if self.primary_key_index.is_some() {
             anyhow::bail!(
                 "Collection \"{}\" attempting to assign primary key twice!",
@@ -59,7 +63,7 @@ where
             serialize: primary_key.1,
             options: IndexOptions {
                 unique: true,
-                full_docs: true,
+                primary: true,
             },
         }));
         Ok(())
@@ -214,22 +218,11 @@ where
 
     /// Insert a document into a collection. All relevant indices will be updated.
     pub fn insert(&self, document: &T) -> Result<()> {
-        // Serialize our document
-        let data = rmp_serde::to_vec_named(document)?;
-
         let tx = self.kv().write_tx()?;
-        // Serialize our document primary key
         let primary_key = (self.primary_key_extractor())(document);
-        // Check if the primary key exists, if so reject the insertion
-        // TODO: use a "contains_key" type function to avoid loading the data unnecessarily
-        if tx.get(self.name(), primary_key.as_slice())?.is_some() {
-            anyhow::bail!(
-                "Attempting to insert document with duplicate primary key in collection \"{}\": primary key: \"{:?}\"",
-                self.name(),
-                primary_key
-            );
-        }
-        tx.insert(self.name(), primary_key.as_slice(), data.as_slice())?;
+
+        self.primary_key_index()
+            .insert(&tx, document, &primary_key)?;
         for index in &self.indices {
             index.insert(&tx, document, &primary_key)?;
         }
@@ -295,6 +288,10 @@ where
         let index_fields = self.extract_index_fields(&query);
 
         let mut scores = BTreeMap::default();
+        let primary_index_score = self
+            .primary_key_index()
+            .query_compat(&query, &index_fields)?;
+        scores.insert(primary_index_score, self.primary_key_index().clone());
         for index in self.indices() {
             let score = index.query_compat(&query, &index_fields)?;
             scores.insert(score, index.clone());

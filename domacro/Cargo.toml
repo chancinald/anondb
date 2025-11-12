@@ -3,6 +3,9 @@ name = "domacro"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+description = "Proc macro to invoke a macro providing a function as input"
+repository = "https://github.com/chancehudson/anondb.git"
 
 [lib]
 proc-macro = true

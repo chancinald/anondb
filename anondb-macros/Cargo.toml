@@ -3,6 +3,9 @@ name = "anondb-macros"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+description = "anondb proc macros"
+repository = "https://github.com/chancehudson/anondb.git"
 
 [lib]
 proc-macro = true
@@ -13,3 +16,4 @@ syn = "2.0.106"
 proc-macro2 = "1"
 
 anondb-kv = { workspace = true }
+

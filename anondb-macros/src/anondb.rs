@@ -31,7 +31,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         field_doc_generic.insert(field_ident.clone(), doc_generic.clone());
     }
 
-    for (collection_name, indices) in &field_indices {
+    for (_collection_name, indices) in &field_indices {
         for index in indices {
             for (option_name, _) in &index.options {
                 if option_name.to_string() == "primary" {

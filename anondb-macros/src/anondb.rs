@@ -100,9 +100,9 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                                 )*
                             ],
                             serialize: |doc: &#doc_generic| -> Vec<u8> {
-                                let mut key = ::anondb_kv::LexicographicKey::default();
+                                let mut key = #crate_name::anondb_kv::LexicographicKey::default();
                                 #({
-                                    let bytes = <_ as ::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#fields);
+                                    let bytes = <_ as #crate_name::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#fields);
                                     key.append_key_slice(bytes.as_slice());
                                 })*
                                 key.take()
@@ -128,9 +128,9 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                             <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#primary_key_fields ().stats()
                          )
                         ),*], |doc: &#doc_generic| -> Vec<u8> {
-                let mut key = ::anondb_kv::LexicographicKey::default();
+                let mut key = #crate_name::anondb_kv::LexicographicKey::default();
                 #(
-                    let bytes = <_ as ::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#primary_key_fields);
+                    let bytes = <_ as #crate_name::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#primary_key_fields);
                     key.append_key_slice(bytes.as_slice());
                 )*
                 key.take()

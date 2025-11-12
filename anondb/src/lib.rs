@@ -12,11 +12,12 @@ pub use query::*;
 mod test;
 
 // re-exports
+pub use anondb_kv;
+pub use anyhow;
+
 pub use anondb_kv::*;
 pub use anondb_macros::AnonDB;
 pub use anondb_macros::Document;
-
-pub use anyhow;
 
 pub trait Queryable {
     type DocumentQuery: Default;

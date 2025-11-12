@@ -116,28 +116,32 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 }
             });
         quote! {
-            // assign the kv
-            self.#field_name.set_kv(kv.clone())?;
-            // assign the collection name as a string
-            self.#field_name.set_name(stringify!(#field_name).into())?;
-            // assign the primary key
-            self.#field_name.set_primary_key((
-                    vec![#(
-                        (
-                            stringify!(#primary_key_fields).to_string(), 
-                            <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#primary_key_fields ().stats()
-                         )
-                        ),*], |doc: &#doc_generic| -> Vec<u8> {
-                let mut key = #crate_name::anondb_kv::LexicographicKey::default();
-                #(
-                    let bytes = <_ as #crate_name::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#primary_key_fields);
-                    key.append_key_slice(bytes.as_slice());
-                )*
-                key.take()
-            }))?;
-            #extract_index_fields
-            // assign all indices
-            #(#index_assignments)*
+            {
+                // needed to access stats functions
+                use #crate_name::SerializeLexicographic;
+                // assign the kv
+                self.#field_name.set_kv(kv.clone())?;
+                // assign the collection name as a string
+                self.#field_name.set_name(stringify!(#field_name).into())?;
+                // assign the primary key
+                self.#field_name.set_primary_key((
+                        vec![#(
+                            (
+                                stringify!(#primary_key_fields).to_string(), 
+                                <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#primary_key_fields ().stats()
+                             )
+                            ),*], |doc: &#doc_generic| -> Vec<u8> {
+                    let mut key = #crate_name::anondb_kv::LexicographicKey::default();
+                    #(
+                        let bytes = <_ as #crate_name::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#primary_key_fields);
+                        key.append_key_slice(bytes.as_slice());
+                    )*
+                    key.take()
+                }))?;
+                #extract_index_fields
+                // assign all indices
+                #(#index_assignments)*
+            }
         }
     });
 

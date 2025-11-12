@@ -21,6 +21,8 @@ pub use anondb_macros::Document;
 
 pub trait Queryable {
     type DocumentQuery: Default;
+    /// Used to access the types of fields by name. Accessors generated in
+    /// anondb-macros/src/document.rs
     type DocumentPhantom;
 
     fn query() -> Self::DocumentQuery {

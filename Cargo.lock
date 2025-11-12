@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "anondb"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anondb-kv",
  "anondb-macros",
@@ -43,7 +43,7 @@ dependencies = [
 
 [[package]]
 name = "anondb-macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anondb-kv",
  "proc-macro2",

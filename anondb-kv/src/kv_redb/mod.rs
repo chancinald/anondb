@@ -25,9 +25,67 @@ fn tabledef_multimap(name: &str) -> MultimapTableDefinition<&'static [u8], &'sta
     MultimapTableDefinition::new(name)
 }
 
+#[derive(Clone, Debug)]
+pub struct MemStorageBackend {
+    data: Arc<RwLock<Vec<u8>>>,
+}
+
+impl MemStorageBackend {
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.data.read().unwrap().iter().copied().collect()
+    }
+}
+
+impl From<Option<&[u8]>> for MemStorageBackend {
+    fn from(value: Option<&[u8]>) -> Self {
+        let data = if let Some(data) = value {
+            data.to_vec()
+        } else {
+            vec![]
+        };
+        Self {
+            data: Arc::new(RwLock::new(data)),
+        }
+    }
+}
+
+impl StorageBackend for MemStorageBackend {
+    fn len(&self) -> std::result::Result<u64, std::io::Error> {
+        Ok(self
+            .data
+            .read()
+            .unwrap()
+            .len()
+            .try_into()
+            .expect("storage len cast failed"))
+    }
+    fn read(&self, offset: u64, len: usize) -> std::result::Result<Vec<u8>, std::io::Error> {
+        let offset: usize = offset.try_into().unwrap();
+        let data = self.data.read().unwrap();
+        Ok((0..len).map(|i| data[offset + i]).collect())
+    }
+    fn write(&self, offset: u64, new_data: &[u8]) -> std::result::Result<(), std::io::Error> {
+        let offset: usize = offset.try_into().unwrap();
+        let mut data = self.data.write().unwrap();
+        for (i, v) in new_data.iter().enumerate() {
+            data[offset + i] = *v;
+        }
+        Ok(())
+    }
+    fn set_len(&self, len: u64) -> std::result::Result<(), std::io::Error> {
+        let len: usize = len.try_into().unwrap();
+        self.data.write().unwrap().resize(len, 0u8);
+        Ok(())
+    }
+    fn sync_data(&self, _eventual: bool) -> std::result::Result<(), std::io::Error> {
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub struct RedbKV {
     db: Database,
+    backend: MemStorageBackend,
 }
 
 impl KV for RedbKV {
@@ -38,13 +96,15 @@ impl KV for RedbKV {
         unimplemented!()
     }
 
+    fn as_bytes(&self) -> Result<impl Iterator<Item = u8>> {
+        Ok(self.backend.as_bytes().into_iter())
+    }
+
     fn in_memory(bytes_maybe: Option<&[u8]>) -> Result<Self> {
-        let mem_backend = redb::backends::InMemoryBackend::new();
-        if let Some(bytes) = bytes_maybe {
-            mem_backend.write(0, bytes)?;
-        }
+        let backend = MemStorageBackend::from(bytes_maybe);
         Ok(Self {
-            db: Database::builder().create_with_backend(mem_backend)?,
+            db: Database::builder().create_with_backend(backend.clone())?,
+            backend,
         })
     }
 

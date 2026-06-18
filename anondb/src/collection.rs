@@ -116,7 +116,7 @@ where
     }
 
     /// Get a reference to the backing KV.
-    pub(crate) fn kv(&self) -> &Arc<K> {
+    pub fn kv(&self) -> &Arc<K> {
         self.kv
             .as_ref()
             .expect(&format!("Collection \"{}\" has no kv set!", self.name()))

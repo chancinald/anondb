@@ -30,6 +30,12 @@ pub trait KV: Sized + ReadOperations + WriteOperations {
     /// Initialize a kv persisted to a path. What path is (directory, file, etc) is determined by
     /// the underlying implementation.
     fn at_path(path: &std::path::Path) -> Result<Self>;
+    /// Output kv as a vector of bytes.
+    fn as_bytes(&self) -> Result<impl Iterator<Item = u8>> {
+        anyhow::bail!("not supported");
+        Ok(vec![].into_iter())
+    }
+
     /// Initialize a kv with a byte representation of the initial state. This byte
     /// representation is arbitrary to the concrete implementation.
     fn in_memory(bytes_maybe: Option<&[u8]>) -> Result<Self>;

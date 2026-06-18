@@ -44,6 +44,15 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
     }
 
+    let kv_as_bytes = if let Some(field) = fields.first() {
+        let field_name = field.ident.clone().unwrap();
+        quote! {
+            self.#field_name.kv().as_bytes()
+        }
+    } else {
+        unimplemented!()
+    };
+
     let assign_collection_vars = fields.iter().map(|f| {
         let field_name = f.ident.clone().unwrap();
         let doc_generic = field_doc_generic.get(&field_name).expect("expected field document type to be known");
@@ -193,6 +202,11 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 let kv = ::std::sync::Arc::new(#kv_generic_name::in_memory(bytes_maybe)?);
                 s.setup(kv)?;
                 Ok(::std::sync::Arc::new(s))
+            }
+
+            pub fn as_bytes(&self) -> #crate_name::anyhow::Result<impl Iterator<Item = u8>> {
+                #kv_as_bytes
+                // #kv_generic_name::as_bytes(self.kv())
             }
 
             /// Initialize the database backed by a kv that exists on disk.

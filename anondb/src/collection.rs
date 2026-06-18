@@ -255,7 +255,10 @@ where
         Ok(())
     }
 
-    pub fn find_many(&self, query: T::DocumentQuery) -> Result<impl Iterator<Item = T>> {
+    pub fn find_many(
+        &self,
+        query: T::DocumentQuery,
+    ) -> Result<impl Iterator<Item = T> + DoubleEndedIterator> {
         let index_fields = self.extract_index_fields(&query);
 
         let mut scores = BTreeMap::default();

@@ -85,26 +85,38 @@ impl StorageBackend for MemStorageBackend {
 #[derive(Debug)]
 pub struct RedbKV {
     db: Database,
-    backend: MemStorageBackend,
+    backend_maybe: Option<MemStorageBackend>,
 }
 
 impl KV for RedbKV {
     type ReadTransaction = RedbReadTransaction;
     type WriteTransaction = RedbWriteTransaction;
 
-    fn at_path(_path: &std::path::Path) -> Result<Self> {
-        unimplemented!()
+    fn at_path(path: &std::path::Path) -> Result<Self> {
+        Ok(Self {
+            db: if std::fs::exists(path)? {
+                Database::open(path)?
+            } else {
+                Database::create(path)?
+            },
+            backend_maybe: None,
+        })
     }
 
     fn as_bytes(&self) -> Result<impl Iterator<Item = u8>> {
-        Ok(self.backend.as_bytes().into_iter())
+        Ok(self
+            .backend_maybe
+            .clone()
+            .expect("anondb: backend not set")
+            .as_bytes()
+            .into_iter())
     }
 
     fn in_memory(bytes_maybe: Option<&[u8]>) -> Result<Self> {
         let backend = MemStorageBackend::from(bytes_maybe);
         Ok(Self {
             db: Database::builder().create_with_backend(backend.clone())?,
-            backend,
+            backend_maybe: Some(backend),
         })
     }
 

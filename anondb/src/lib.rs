@@ -14,6 +14,9 @@ mod test;
 // re-exports
 pub use anondb_kv;
 pub use anyhow;
+pub mod recurse {
+    pub use anyhow;
+}
 
 pub use anondb_kv::*;
 pub use anondb_macros::AnonDB;

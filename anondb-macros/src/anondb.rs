@@ -159,13 +159,13 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         quote! {
             for table_name in self.#field_name.table_names() {
                 if let Some(collection) = all_table_names.get(&table_name) {
-                    #crate_name::anyhow::bail!("AnonDB: invalid configuration. Table name \"{}\" is used by two different collections: \"{}\" and \"{}\"", table_name, collection, stringify!(#field_name));
+                    #crate_name::recurse::anyhow::bail!("AnonDB: invalid configuration. Table name \"{}\" is used by two different collections: \"{}\" and \"{}\"", table_name, collection, stringify!(#field_name));
                 }
                 all_table_names.insert(table_name.into(), stringify!(#field_name).into());
             }
             self.#field_name.construct_indices()?;
             if !self.#field_name.has_primary_key() {
-                #crate_name::anyhow::bail!("Collection \"{}\" does not have a primary key defined!", self.#field_name.name());
+                #crate_name::recurse::anyhow::bail!("Collection \"{}\" does not have a primary key defined!", self.#field_name.name());
             }
         }
     });
@@ -197,20 +197,20 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         impl #impl_generics #name #ty_generics #where_clause {
             /// Initialize the database backed by a kv that exists in memory.
-            pub fn in_memory(bytes_maybe: Option<&[u8]>) -> #crate_name::anyhow::Result<::std::sync::Arc<Self>> {
+            pub fn in_memory(bytes_maybe: Option<&[u8]>) -> #crate_name::recurse::anyhow::Result<::std::sync::Arc<Self>> {
                 let mut s = Self::default();
                 let kv = ::std::sync::Arc::new(#kv_generic_name::in_memory(bytes_maybe)?);
                 s.setup(kv)?;
                 Ok(::std::sync::Arc::new(s))
             }
 
-            pub fn as_bytes(&self) -> #crate_name::anyhow::Result<impl Iterator<Item = u8>> {
+            pub fn as_bytes(&self) -> #crate_name::recurse::anyhow::Result<impl Iterator<Item = u8>> {
                 #kv_as_bytes
                 // #kv_generic_name::as_bytes(self.kv())
             }
 
             /// Initialize the database backed by a kv that exists on disk.
-            pub fn at_path(path: &::std::path::Path) -> #crate_name::anyhow::Result<::std::sync::Arc<Self>> {
+            pub fn at_path(path: &::std::path::Path) -> #crate_name::recurse::anyhow::Result<::std::sync::Arc<Self>> {
                 let mut s = Self::default();
                 let kv = ::std::sync::Arc::new(#kv_generic_name::at_path(path)?);
                 s.setup(kv)?;
@@ -218,7 +218,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             }
 
             /// Assign collection variables based on struct values.
-            fn setup(&mut self, kv: ::std::sync::Arc<#kv_generic_name>) -> #crate_name::anyhow::Result<()> {
+            fn setup(&mut self, kv: ::std::sync::Arc<#kv_generic_name>) -> #crate_name::recurse::anyhow::Result<()> {
                 // assign values to the collection such as kv, name, indices
                 #(#assign_collection_vars)*
 

@@ -15,8 +15,8 @@ use write_tx::*;
 
 #[derive(Debug)]
 pub struct MemoryKVItem {
-    key: Vec<u8>,
-    value: Vec<u8>,
+    pub(crate) key: Vec<u8>,
+    pub(crate) value: Vec<u8>,
 }
 
 impl OpaqueItem for MemoryKVItem {

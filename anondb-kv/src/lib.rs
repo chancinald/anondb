@@ -5,6 +5,8 @@ mod kv_memory;
 #[cfg(test)]
 mod test;
 
+use std::ops::RangeBounds;
+
 // #[cfg(feature = "redb")]
 // pub use kv_redb::*;
 pub use kv_memory::*;
@@ -20,7 +22,8 @@ pub trait OpaqueItem: std::fmt::Debug {
 /// A generic key-value store. Assumed to be capable of transactional mutation of key-value collections.
 pub trait KV: Sized + ReadOperations + WriteOperations + Clone {
     type Item: OpaqueItem;
-    type ReadTransaction: ReadOperations<Item = <Self as KV>::Item>;
+    type ReadTransaction: ReadOperations<Item = <Self as KV>::Item>
+        + RangeReadOperation<Item = <Self as KV>::Item>;
     type WriteTransaction: WriteTx<Item = <Self as KV>::Item>;
     type Config;
 
@@ -58,6 +61,15 @@ pub trait WriteOperations {
 
     /// Remove all entries in a table.
     fn clear(&self, table: &str) -> impl Future<Output = Result<()>>;
+}
+
+pub trait RangeReadOperation {
+    type Item: OpaqueItem;
+    fn range<'a>(
+        &'a self,
+        table: &str,
+        range: impl RangeBounds<Vec<u8>> + 'a,
+    ) -> impl Future<Output = Result<impl Iterator<Item = Result<Self::Item>> + 'a>>;
 }
 
 pub trait WriteTx: ReadOperations + WriteOperations {

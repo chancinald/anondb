@@ -31,3 +31,22 @@ impl ReadOperations for MemoryKVReadTransaction {
         }
     }
 }
+
+impl RangeReadOperation for MemoryKVReadTransaction {
+    type Item = MemoryKVItem;
+    async fn range<'a>(
+        &'a self,
+        table: &str,
+        range: impl RangeBounds<Vec<u8>> + 'a,
+    ) -> Result<impl Iterator<Item = Result<Self::Item>> + 'a> {
+        let Some(table) = self.tables.get(table) else {
+            anyhow::bail!("table not found \"{table}\"")
+        };
+        Ok(table.range(range).map(|(key, value)| {
+            Ok(MemoryKVItem {
+                key: key.clone(),
+                value: value.clone(),
+            })
+        }))
+    }
+}

@@ -7,9 +7,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 
-use anondb_kv::*;
-
-use crate::*;
+use super::*;
 
 #[derive(Debug, Clone, PartialEq, Hash, Default, Serialize, Deserialize)]
 pub struct IndexOptions {
@@ -57,15 +55,15 @@ where
         field_names: Vec<(String, LexStats)>,
         serialize: fn(&T) -> Vec<u8>,
     ) -> Self {
-        Self {
+        Self::new(
             collection_name,
             field_names,
-            serialize: Box::new(serialize),
-            options: IndexOptions {
+            serialize,
+            IndexOptions {
                 unique: true,
                 primary: true,
             },
-        }
+        )
     }
 
     /// Name of the table in the kv where the index will be stored. This should be a combination of

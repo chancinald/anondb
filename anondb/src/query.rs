@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::ops::Bound;
 use std::ops::RangeBounds;
 
-use anondb_kv::*;
+use super::*;
 
 #[derive(Debug)]
 pub struct GeneralRange<T>(pub Bound<T>, pub Bound<T>);

@@ -5,7 +5,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::*;
+use super::*;
 
 #[derive(Serialize, Deserialize, PartialEq)]
 pub struct IndexDescription {

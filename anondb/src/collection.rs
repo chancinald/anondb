@@ -3,7 +3,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use super::*;
-use anondb_kv::*;
 
 #[derive(Debug)]
 pub struct Collection<T, K: KV>

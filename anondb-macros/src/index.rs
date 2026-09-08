@@ -7,7 +7,7 @@ use syn::parse::ParseStream;
 use syn::punctuated::Punctuated;
 use syn::*;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum IndexType {
     Primary,
     Normal,
@@ -31,7 +31,7 @@ impl IndexDef {
     ) -> TokenStream {
         let crate_name = super::crate_name();
         let fields = self.fields.clone();
-        let options = self
+        let mut options = self
             .options
             .iter()
             .map(|(k, v)| {
@@ -40,6 +40,12 @@ impl IndexDef {
                 }
             })
             .collect::<Vec<_>>();
+        if self.index_type == IndexType::Primary {
+            options.push(quote! {
+                primary: true,
+            });
+        }
+
         quote! {
             #crate_name::Index::new(
                 stringify!(#collection_name).into(),

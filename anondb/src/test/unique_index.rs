@@ -5,7 +5,7 @@ async fn fail_insert_unique_index() -> Result<()> {
     #[derive(AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0)]
-        // #[anondb(index = id1; unique = true)]
+        #[anondb(index = id1; unique = true)]
         pub test: Collection<TestDocument, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;
@@ -27,7 +27,7 @@ async fn fail_insert_unique_compound_index_2() -> Result<()> {
     #[derive(AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0)]
-        // #[anondb(index = id1, id2; unique = true)]
+        #[anondb(index = id1, id2; unique = true)]
         pub test: Collection<TestDocument, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;
@@ -53,7 +53,7 @@ async fn fail_insert_unique_compound_index_3() -> Result<()> {
     #[derive(AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0)]
-        // #[anondb(index = id1, id2, id3; unique = true)]
+        #[anondb(index = id1, id2, id3; unique = true)]
         pub test: Collection<TestDocument, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;

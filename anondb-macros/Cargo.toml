@@ -1,6 +1,6 @@
 [package]
 name = "anondb-macros"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -10,9 +10,7 @@ description = "anondb proc macros"
 proc-macro = true
 
 [dependencies]
-quote = "1.0.41"
-syn = "2.0.106"
+quote = "1"
+syn = "2"
 proc-macro2 = "1"
-
-anondb-kv = { workspace = true }
 

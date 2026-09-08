@@ -1,10 +1,12 @@
 mod collection;
 mod index;
+mod lexicographic;
 mod metadata;
 mod query;
 
 pub use collection::*;
 pub use index::*;
+pub use lexicographic::*;
 use metadata::*;
 pub use query::*;
 

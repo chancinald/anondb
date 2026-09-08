@@ -1,49 +1,88 @@
 use std::collections::HashMap;
 
+use proc_macro2::TokenStream;
+use quote::quote;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 use syn::punctuated::Punctuated;
 use syn::*;
 
-use anondb_kv::SortDirection;
-
-/// Represents a single field in an index.
 #[derive(Clone)]
-pub struct IndexField {
-    pub name: Ident,
-    pub direction: SortDirection,
+pub enum IndexType {
+    Primary,
+    Normal,
 }
 
-impl Parse for IndexField {
-    fn parse(input: ParseStream) -> Result<Self> {
-        let direction = if input.peek(Token![-]) {
-            input.parse::<Token![-]>()?;
-            SortDirection::Desc
-        } else {
-            SortDirection::Asc
-        };
-
-        let name: Ident = input.parse()?;
-
-        Ok(IndexField { name, direction })
-    }
-}
-
-/// Represents an index for a collection.
+/// Represents an index for a collection as parsed from the DB struct.
 #[derive(Clone)]
 pub struct IndexDef {
     /// Either "index" or "primary_key"
-    pub keyword: Ident,
-    pub fields: Vec<IndexField>,
+    pub index_type: IndexType,
+    /// Field names in the index
+    pub fields: Vec<Ident>,
     pub options: HashMap<Ident, bool>,
+}
+
+impl IndexDef {
+    pub(crate) fn generate_index_constructor(
+        &self,
+        collection_name: &Ident,
+        doc_generic: &Type,
+    ) -> TokenStream {
+        let crate_name = super::crate_name();
+        let fields = self.fields.clone();
+        let options = self
+            .options
+            .iter()
+            .map(|(k, v)| {
+                quote! {
+                    #k : #v,
+                }
+            })
+            .collect::<Vec<_>>();
+        quote! {
+            #crate_name::Index::new(
+                stringify!(#collection_name).into(),
+                vec![#(
+                    (
+                        stringify!(#fields).to_string(),
+                        <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().stats()
+                     )
+                    ),*
+                ],
+                |doc: &#doc_generic| -> Vec<u8> {
+                    let mut key = #crate_name::LexicographicKey::default();
+                    #(
+                        let bytes = <_ as #crate_name::SerializeLexicographic>::serialize_lex(&doc.#fields);
+                        key.append_key_slice(bytes.as_slice());
+                    )*
+                    key.take()
+                },
+                #crate_name::IndexOptions {
+                    #(#options)*
+                    ..Default::default()
+                }
+            ),
+        }
+    }
 }
 
 impl Parse for IndexDef {
     fn parse(input: ParseStream) -> Result<Self> {
+        // #[anondb(primary_key = id0, id1, id2)]
         let keyword: Ident = input.parse()?;
+        let index_type = match keyword.to_string().as_str() {
+            "primary_key" => IndexType::Primary,
+            "index" => IndexType::Normal,
+            _ => {
+                panic!(
+                    "bad AnonDB keyword, expected \"primary_key\" or \"index\", got: \"{keyword}\""
+                )
+            }
+        };
         input.parse::<Token![=]>()?;
-        let field_list = Punctuated::<IndexField, Token![,]>::parse_separated_nonempty(input)?;
-        let fields: Vec<IndexField> = field_list.into_iter().collect();
+        let field_list = Punctuated::<Ident, Token![,]>::parse_separated_nonempty(input)?;
+        let fields: Vec<Ident> = field_list.into_iter().collect();
 
         let mut options = HashMap::default();
 
@@ -67,7 +106,7 @@ impl Parse for IndexDef {
             }
         }
         Ok(Self {
-            keyword,
+            index_type,
             fields,
             options,
         })

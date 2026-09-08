@@ -10,7 +10,7 @@ use super::*;
 /// Metadata collected for a single collection field on the `AnonDB` struct.
 struct FieldMeta {
     /// The primary key index for this field.
-    primary_key: IndexDef,
+    primary_key_index: IndexDef,
     /// All secondary indices defined for this field.
     indices: Vec<IndexDef>,
     /// The document type stored in this field's collection (the generic arg of `Collection<T>`).
@@ -29,7 +29,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     // collect primary key, indices, and document type for each field
     let mut field_meta = HashMap::<Ident, FieldMeta>::default();
     for field in fields {
-        let (primary_key, indices) = parse_attributes(field)?;
+        let (primary_key_index, indices) = parse_attributes(field)?;
         let field_ident = field.ident.clone().expect("expected field ident to exist");
         let doc_generic = get_first_generic(&field.ty)
             .expect("expected field type to have a generic argument")
@@ -37,7 +37,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         field_meta.insert(
             field_ident,
             FieldMeta {
-                primary_key,
+                primary_key_index,
                 indices,
                 doc_generic,
             },
@@ -58,40 +58,24 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
     }
 
-    let defaults = fields.iter().map(|f| {
-        let field_name = f.ident.clone().unwrap();
-        let meta = field_meta
-            .get(&field_name)
-            .expect("expected field metadata to be known");
+    let collections = field_meta.iter().map(|(collection_name, meta)| {
         let doc_generic = &meta.doc_generic;
-        let primary_key_fields = meta
-            .primary_key
-            .fields
+        let primary_index = meta
+            .primary_key_index
+            .generate_index_constructor(collection_name, doc_generic);
+        let indices = meta
+            .indices
             .iter()
-            .map(|v| v.name.clone())
-            .collect::<Vec<_>>();
+            .map(|v| v.generate_index_constructor(collection_name, doc_generic));
         quote! {
-            #field_name: #crate_name::Collection::new(
+            #collection_name: #crate_name::Collection::new(
                 kv.clone(),
-                stringify!(#field_name).into(),
-                #crate_name::Index::new_primary(
-                    stringify!(#field_name).into(),
-                    vec![#(
-                        (
-                            stringify!(#primary_key_fields).to_string(),
-                            <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#primary_key_fields ().stats()
-                         )
-                        ),*
-                    ],
-                    |doc: &#doc_generic| -> Vec<u8> {
-                        let mut key = #crate_name::anondb_kv::LexicographicKey::default();
-                        #(
-                            let bytes = <_ as #crate_name::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#primary_key_fields);
-                            key.append_key_slice(bytes.as_slice());
-                        )*
-                        key.take()
-                    })
-                ),
+                stringify!(#collection_name).into(),
+                #primary_index
+                vec![
+                    #(#indices)*
+                ]
+            ),
         }
     });
 
@@ -106,11 +90,11 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
     let expanded = quote! {
         impl #impl_generics #name #ty_generics #where_clause {
-            /// Initialize the database backed by a kv that exists in memory.
+            /// Initialize the database backed by a kv, optionally providing a config.
             pub async fn new(config_maybe: Option<#kv_generic_name::Config>) -> Result<Self> {
                 let kv = #kv_generic_name::new(config_maybe).await?;
                 Ok(Self {
-                    #(#defaults)*
+                    #(#collections)*
                 })
             }
         }
@@ -119,7 +103,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     Ok(TokenStream::from(expanded))
 }
 
-/// For all the collections in the db, extract primary_key attributes.
+/// For all the collections in the db, extract primary_key and index attributes.
 fn parse_attributes(field: &Field) -> Result<(IndexDef, Vec<IndexDef>)> {
     let mut primary_key_maybe: Option<IndexDef> = None;
     let mut indices = Vec::default();
@@ -128,8 +112,8 @@ fn parse_attributes(field: &Field) -> Result<(IndexDef, Vec<IndexDef>)> {
             continue;
         }
         let index_def = attr.parse_args::<IndexDef>()?;
-        match index_def.keyword.to_string().as_str() {
-            "primary_key" => {
+        match index_def.index_type {
+            IndexType::Primary => {
                 if !index_def.options.is_empty() {
                     return Err(Error::new_spanned(
                         attr,
@@ -138,17 +122,8 @@ fn parse_attributes(field: &Field) -> Result<(IndexDef, Vec<IndexDef>)> {
                 }
                 primary_key_maybe = Some(index_def);
             }
-            "index" => {
+            IndexType::Normal => {
                 indices.push(index_def);
-            }
-            key => {
-                return Err(Error::new_spanned(
-                    attr,
-                    format!(
-                        "AnonDB unrecognized key \"{key}\" in attribute for field \"{}\"",
-                        stringify!(field)
-                    ),
-                ));
             }
         }
     }

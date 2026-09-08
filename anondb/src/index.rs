@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ops::Bound;
 use std::ops::RangeBounds;
@@ -11,9 +10,11 @@ use super::*;
 
 #[derive(Debug, Clone, PartialEq, Hash, Default, Serialize, Deserialize)]
 pub struct IndexOptions {
-    pub unique: bool, // only allow 1 unique combination of each field in the index
-    pub primary: bool, // does the index store the full document in a table matching the collection
-                      // name
+    /// only allow 1 unique combination of each field in the index
+    pub unique: bool,
+    /// does the index store the full document in a table
+    /// matching the collection name
+    pub primary: bool,
 }
 
 // TODO: explicitly check and disallow duplicate field names
@@ -48,22 +49,6 @@ where
             serialize: Box::new(serialize),
             options,
         }
-    }
-
-    pub fn new_primary(
-        collection_name: String,
-        field_names: Vec<(String, LexStats)>,
-        serialize: fn(&T) -> Vec<u8>,
-    ) -> Self {
-        Self::new(
-            collection_name,
-            field_names,
-            serialize,
-            IndexOptions {
-                unique: true,
-                primary: true,
-            },
-        )
     }
 
     /// Name of the table in the kv where the index will be stored. This should be a combination of
@@ -270,14 +255,14 @@ where
     }
 
     /// Take a document and a primary key and insert into a collection.
-    pub async fn insert<I>(&self, tx: &impl WriteTx<I>, doc: &T, primary_key: &[u8]) -> Result<()> {
+    pub async fn insert<I>(
+        &self,
+        tx: &impl WriteTx<I>,
+        doc: &T,
+        _primary_key: &[u8],
+    ) -> Result<()> {
         let key = (self.serialize)(doc);
         let table_name = self.table_name();
-        let bytes = if self.options.primary {
-            Cow::from(rmp_serde::to_vec_named(doc)?)
-        } else {
-            Cow::from(primary_key)
-        };
         if self.options.unique {
             if tx.get(&table_name, key.as_slice()).await?.is_some() {
                 anyhow::bail!(
@@ -286,10 +271,11 @@ where
                     table_name
                 );
             }
-            tx.insert(&table_name, key.as_slice(), &bytes).await?;
+            tx.insert(&table_name, key.as_slice(), &rmp_serde::to_vec_named(doc)?)
+                .await?;
         } else {
             unimplemented!()
-            // tx.insert_multimap(&table_name, key.as_slice(), &bytes)?;
+            // tx.insert_multimap(&table_name, key.as_slice(), primary_key)?;
         }
         Ok(())
     }

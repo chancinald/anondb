@@ -1,8 +1,6 @@
 // #[cfg(feature = "redb")]
 // mod kv_redb;
 mod kv_memory;
-mod lexicographic;
-mod sort;
 
 // #[cfg(test)]
 // mod test;
@@ -10,8 +8,6 @@ mod sort;
 // #[cfg(feature = "redb")]
 // pub use kv_redb::*;
 pub use kv_memory::*;
-pub use lexicographic::*;
-pub use sort::*;
 
 use anyhow::Result;
 

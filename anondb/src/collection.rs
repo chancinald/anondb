@@ -13,17 +13,19 @@ where
     name: String,
     /// Extractor function to get a primary key from an instance of T
     primary_key_index: Index<T>,
+    indices: Vec<Index<T>>,
 }
 
 impl<T, K: KV> Collection<T, K>
 where
     T: 'static + Serialize + for<'de> Deserialize<'de> + Queryable,
 {
-    pub fn new(kv: K, name: String, primary_key_index: Index<T>) -> Self {
+    pub fn new(kv: K, name: String, primary_key_index: Index<T>, indices: Vec<Index<T>>) -> Self {
         Self {
             kv,
             name,
             primary_key_index,
+            indices,
         }
     }
 

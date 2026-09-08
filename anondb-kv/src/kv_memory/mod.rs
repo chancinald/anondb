@@ -1,8 +1,7 @@
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::OwnedRwLockReadGuard;
+use rpds::RedBlackTreeMapSync;
 use tokio::sync::OwnedRwLockWriteGuard;
 use tokio::sync::RwLock;
 
@@ -32,7 +31,21 @@ impl OpaqueItem for MemoryKVItem {
 
 #[derive(Default, Clone)]
 pub struct MemoryKV {
-    tables: Arc<RwLock<HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>>>,
+    /// A snapshot for read operations to access during write operations
+    tables_snapshot: Arc<RwLock<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>>,
+    /// The canonical KV data. This lock is distinct from the snapshot.
+    tables: Arc<RwLock<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>>,
+}
+
+impl MemoryKV {
+    async fn get_read_snapshot(&self) -> HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>> {
+        if let Ok(tables) = self.tables.try_read() {
+            *self.tables_snapshot.write().await = tables.clone();
+            tables.clone()
+        } else {
+            self.tables_snapshot.read().await.clone()
+        }
+    }
 }
 
 impl KV for MemoryKV {
@@ -47,14 +60,14 @@ impl KV for MemoryKV {
 
     async fn read_tx(&self) -> Result<Self::ReadTransaction> {
         Ok(MemoryKVReadTransaction {
-            tables_lock: self.tables.clone().read_owned().await,
+            tables: self.get_read_snapshot().await,
         })
     }
 
     async fn write_tx(&self) -> Result<Self::WriteTransaction> {
-        Ok(MemoryKVWriteTransaction::new(
-            self.tables.clone().write_owned().await,
-        ))
+        let tables_lock = self.tables.clone().write_owned().await;
+        *self.tables_snapshot.write().await = tables_lock.clone();
+        Ok(MemoryKVWriteTransaction::new(tables_lock))
     }
 }
 
@@ -66,11 +79,7 @@ impl ReadOperations for MemoryKV {
     }
 
     async fn get(&self, table: &str, key: &[u8]) -> Result<Option<MemoryKVItem>> {
-        let v = {
-            let tx = self.read_tx().await?;
-            tx.get(table, key).await?
-        };
-        Ok(v)
+        self.read_tx().await?.get(table, key).await
     }
 }
 
@@ -79,7 +88,7 @@ impl WriteOperations for MemoryKV {
     async fn clear(&self, table: &str) -> Result<()> {
         match self.tables.write().await.get_mut(table) {
             Some(table) => {
-                table.clear();
+                *table = RedBlackTreeMapSync::default();
                 Ok(())
             }
             None => {
@@ -91,15 +100,24 @@ impl WriteOperations for MemoryKV {
 
     async fn insert(&self, table: &str, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>> {
         let mut tables = self.tables.write().await;
-        Ok(tables
-            .entry(table.into())
-            .or_default()
-            .insert(key.into(), value.into()))
+        let table = tables.entry(table.into()).or_default();
+        Ok(if let Some(val) = table.get_mut(key) {
+            let mut out = value.to_vec();
+            std::mem::swap(val, &mut out);
+            Some(out)
+        } else {
+            table.insert_mut(key.into(), value.into());
+            None
+        })
     }
 
     async fn remove(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
         match self.tables.write().await.get_mut(table) {
-            Some(table) => Ok(table.remove(key)),
+            Some(table) => {
+                let prev = table.get(key).cloned();
+                table.remove_mut(key);
+                Ok(prev)
+            }
             None => {
                 log::warn!("table \"{table}\" not found");
                 Ok(None)

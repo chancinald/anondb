@@ -1,14 +1,16 @@
+use rpds::RedBlackTreeMapSync;
+
 use super::*;
 
 pub struct MemoryKVReadTransaction {
-    pub(crate) tables_lock: OwnedRwLockReadGuard<HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>>,
+    pub(crate) tables: HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>,
 }
 
 impl ReadOperations for MemoryKVReadTransaction {
     type Item = MemoryKVItem;
     async fn count(&self, table: &str) -> Result<u64> {
-        match self.tables_lock.get(table) {
-            Some(table) => Ok(table.len() as u64),
+        match self.tables.get(table) {
+            Some(table) => Ok(table.size() as u64),
             None => {
                 log::warn!("table \"{table}\" not found");
                 Ok(0)
@@ -17,7 +19,7 @@ impl ReadOperations for MemoryKVReadTransaction {
     }
 
     async fn get(&self, table: &str, key: &[u8]) -> Result<Option<MemoryKVItem>> {
-        if let Some(table) = self.tables_lock.get(table)
+        if let Some(table) = self.tables.get(table)
             && let Some(item) = table.get(key)
         {
             Ok(Some(MemoryKVItem {

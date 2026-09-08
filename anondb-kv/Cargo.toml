@@ -18,6 +18,7 @@ log = { workspace = true }
 
 redb = { version = "2.6.3", optional = true }
 tokio = { version = "1", default-features = false, features = ["sync"] }
+rpds = "1"
 
 [dev-dependencies]
 rand = { workspace = true }

@@ -71,6 +71,37 @@ async fn write_visible_in_transaction<T: KV>(handle: &T) -> Result<()> {
 }
 
 #[domacro(all_kv_impls)]
+async fn write_transaction_rolls_back_without_commit<T: KV>(handle: &T) -> Result<()> {
+    let table_name = rand_utf8(10);
+    let key = rand::random::<[u8; 32]>();
+    let val = rand::random::<[u8; 32]>();
+
+    {
+        let write = handle.write_tx().await?;
+
+        write
+            .insert(&table_name, key.as_slice(), val.as_slice())
+            .await?;
+
+        assert_eq!(
+            write
+                .get(&table_name, key.as_slice())
+                .await?
+                .expect("value should exist")
+                .value()
+                .await,
+            val
+        );
+        assert_eq!(write.count(&table_name).await?, 1);
+    }
+
+    assert!(handle.get(&table_name, key.as_slice()).await?.is_none());
+    assert_eq!(handle.count(&table_name).await?, 0);
+
+    Ok(())
+}
+
+#[domacro(all_kv_impls)]
 async fn read_tx_consistent_over_write<T: KV>(handle: &T) -> Result<()> {
     let table_name = rand_utf8(10);
     let key = rand::random::<[u8; 32]>();

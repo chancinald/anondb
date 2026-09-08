@@ -4,8 +4,9 @@ use tokio::sync::Mutex;
 use super::*;
 
 pub struct MemoryKVWriteTransaction {
+    tables_snapshot: Mutex<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>,
     pub(crate) tables_lock:
-        Mutex<OwnedRwLockWriteGuard<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>>,
+        OwnedRwLockWriteGuard<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>,
 }
 
 impl MemoryKVWriteTransaction {
@@ -13,7 +14,8 @@ impl MemoryKVWriteTransaction {
         tables_lock: OwnedRwLockWriteGuard<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>,
     ) -> Self {
         Self {
-            tables_lock: Mutex::new(tables_lock),
+            tables_snapshot: Mutex::new(tables_lock.clone()),
+            tables_lock,
         }
     }
 }
@@ -21,7 +23,7 @@ impl MemoryKVWriteTransaction {
 impl ReadOperations for MemoryKVWriteTransaction {
     type Item = MemoryKVItem;
     async fn count(&self, table: &str) -> Result<u64> {
-        match self.tables_lock.lock().await.get(table) {
+        match self.tables_snapshot.lock().await.get(table) {
             Some(table) => Ok(table.size() as u64),
             None => {
                 log::warn!("table \"{table}\" not found");
@@ -31,7 +33,7 @@ impl ReadOperations for MemoryKVWriteTransaction {
     }
 
     async fn get(&self, table: &str, key: &[u8]) -> Result<Option<MemoryKVItem>> {
-        if let Some(table) = self.tables_lock.lock().await.get(table)
+        if let Some(table) = self.tables_snapshot.lock().await.get(table)
             && let Some(item) = table.get(key)
         {
             Ok(Some(MemoryKVItem {
@@ -47,7 +49,7 @@ impl ReadOperations for MemoryKVWriteTransaction {
 impl WriteOperations for MemoryKVWriteTransaction {
     type Item = MemoryKVItem;
     async fn clear(&self, table: &str) -> Result<()> {
-        match self.tables_lock.lock().await.get_mut(table) {
+        match self.tables_snapshot.lock().await.get_mut(table) {
             Some(table) => {
                 *table = RedBlackTreeMapSync::default();
                 Ok(())
@@ -60,7 +62,7 @@ impl WriteOperations for MemoryKVWriteTransaction {
     }
 
     async fn insert(&self, table: &str, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>> {
-        let mut tables = self.tables_lock.lock().await;
+        let mut tables = self.tables_snapshot.lock().await;
         let table = tables.entry(table.into()).or_default();
         Ok(if let Some(val) = table.get_mut(key) {
             let mut out = value.to_vec();
@@ -73,7 +75,7 @@ impl WriteOperations for MemoryKVWriteTransaction {
     }
 
     async fn remove(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        match self.tables_lock.lock().await.get_mut(table) {
+        match self.tables_snapshot.lock().await.get_mut(table) {
             Some(table) => {
                 let prev = table.get(key).cloned();
                 table.remove_mut(key);
@@ -89,7 +91,8 @@ impl WriteOperations for MemoryKVWriteTransaction {
 
 impl WriteTx for MemoryKVWriteTransaction {
     type Item = MemoryKVItem;
-    async fn commit(self) -> Result<()> {
+    async fn commit(mut self) -> Result<()> {
+        *self.tables_lock = self.tables_snapshot.into_inner();
         Ok(())
     }
 }

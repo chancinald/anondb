@@ -4,14 +4,13 @@ use serde::Serialize;
 
 use super::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Collection<T, K: KV>
 where
     T: 'static + Serialize + for<'de> Deserialize<'de> + Queryable,
 {
     kv: K,
     name: String,
-    /// Extractor function to get a primary key from an instance of T
     primary_key_index: Index<T>,
     indices: Vec<Index<T>>,
 }

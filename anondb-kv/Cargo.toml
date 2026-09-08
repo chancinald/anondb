@@ -14,7 +14,6 @@ redb = ["dep:redb"]
 
 [dependencies]
 anyhow = { workspace = true }
-serde = { workspace = true }
 log = { workspace = true }
 
 redb = { version = "2.6.3", optional = true }
@@ -25,3 +24,4 @@ rand = { workspace = true }
 rstest = "0"
 paste = "1"
 domacro = "0"
+tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread"] }

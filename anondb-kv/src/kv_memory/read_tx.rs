@@ -4,7 +4,8 @@ pub struct MemoryKVReadTransaction {
     pub(crate) tables_lock: OwnedRwLockReadGuard<HashMap<String, BTreeMap<Vec<u8>, Vec<u8>>>>,
 }
 
-impl ReadOperations<MemoryKVItem> for MemoryKVReadTransaction {
+impl ReadOperations for MemoryKVReadTransaction {
+    type Item = MemoryKVItem;
     async fn count(&self, table: &str) -> Result<u64> {
         match self.tables_lock.get(table) {
             Some(table) => Ok(table.len() as u64),

@@ -22,7 +22,8 @@ impl MemoryKVWriteTransaction {
     }
 }
 
-impl ReadOperations<MemoryKVItem> for MemoryKVWriteTransaction {
+impl ReadOperations for MemoryKVWriteTransaction {
+    type Item = MemoryKVItem;
     async fn count(&self, table: &str) -> Result<u64> {
         match self.tables_lock.get(table) {
             Some(table) => Ok(table.len() as u64),
@@ -47,7 +48,8 @@ impl ReadOperations<MemoryKVItem> for MemoryKVWriteTransaction {
     }
 }
 
-impl WriteOperations<MemoryKVItem> for MemoryKVWriteTransaction {
+impl WriteOperations for MemoryKVWriteTransaction {
+    type Item = MemoryKVItem;
     async fn insert(&self, table: &str, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>> {
         self.pending_operations
             .write()
@@ -77,7 +79,8 @@ impl WriteOperations<MemoryKVItem> for MemoryKVWriteTransaction {
     }
 }
 
-impl WriteTx<MemoryKVItem> for MemoryKVWriteTransaction {
+impl WriteTx for MemoryKVWriteTransaction {
+    type Item = MemoryKVItem;
     async fn commit(mut self) -> Result<()> {
         for operation in self.pending_operations.write().await.drain(..) {
             match operation {

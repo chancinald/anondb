@@ -2,8 +2,8 @@
 // mod kv_redb;
 mod kv_memory;
 
-// #[cfg(test)]
-// mod test;
+#[cfg(test)]
+mod test;
 
 // #[cfg(feature = "redb")]
 // pub use kv_redb::*;
@@ -12,16 +12,16 @@ pub use kv_memory::*;
 use anyhow::Result;
 
 /// A standard interface for accessing entries in a KV.
-pub trait OpaqueItem {
+pub trait OpaqueItem: std::fmt::Debug {
     fn key(&self) -> &[u8];
     fn value(&self) -> impl Future<Output = &[u8]>;
 }
 
 /// A generic key-value store. Assumed to be capable of transactional mutation of key-value collections.
-pub trait KV: Sized + ReadOperations<Self::Item> + WriteOperations<Self::Item> + Clone {
-    type ReadTransaction: ReadOperations<Self::Item>;
-    type WriteTransaction: WriteTx<Self::Item>;
+pub trait KV: Sized + ReadOperations + WriteOperations + Clone {
     type Item: OpaqueItem;
+    type ReadTransaction: ReadOperations<Item = <Self as KV>::Item>;
+    type WriteTransaction: WriteTx<Item = <Self as KV>::Item>;
     type Config;
 
     /// Initialize a kv persisted to a path. What path is (directory, file, etc) is determined by
@@ -34,15 +34,17 @@ pub trait KV: Sized + ReadOperations<Self::Item> + WriteOperations<Self::Item> +
     fn read_tx(&self) -> impl Future<Output = Result<Self::ReadTransaction>>;
 }
 
-pub trait ReadOperations<Item> {
+pub trait ReadOperations {
+    type Item: OpaqueItem;
     /// Determine the number of keys present in a table.
     fn count(&self, table: &str) -> impl Future<Output = Result<u64>>;
 
     /// Retrieve the value associated to a key for a table. Must be `O(1)`.
-    fn get(&self, table: &str, key: &[u8]) -> impl Future<Output = Result<Option<Item>>>;
+    fn get(&self, table: &str, key: &[u8]) -> impl Future<Output = Result<Option<Self::Item>>>;
 }
 
-pub trait WriteOperations<Item> {
+pub trait WriteOperations {
+    type Item: OpaqueItem;
     /// Insert a key for a table and return the old value if it exists. Must be `O(1)`.
     fn insert(
         &self,
@@ -58,7 +60,8 @@ pub trait WriteOperations<Item> {
     fn clear(&self, table: &str) -> impl Future<Output = Result<()>>;
 }
 
-pub trait WriteTx<Item>: ReadOperations<Item> + WriteOperations<Item> {
+pub trait WriteTx: ReadOperations + WriteOperations {
+    type Item: OpaqueItem;
     fn commit(self) -> impl Future<Output = Result<()>>;
 }
 

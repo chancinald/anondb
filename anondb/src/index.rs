@@ -12,8 +12,7 @@ use super::*;
 pub struct IndexOptions {
     /// only allow 1 unique combination of each field in the index
     pub unique: bool,
-    /// does the index store the full document in a table
-    /// matching the collection name
+    /// does the index store the full document, or a reference to the primary key
     pub primary: bool,
 }
 
@@ -69,9 +68,9 @@ where
 
     /// TODO: allow variable length serialization only as the final element in an index
     /// Accept a set of field keys as lexicographically serialized bytes
-    pub fn query<'tx, I>(
+    pub fn query<'tx>(
         &self,
-        tx: &'tx impl ReadOperations<I>,
+        tx: &'tx impl ReadOperations,
         query: &T::DocumentQuery,
         index_fields: &HashMap<String, Param>,
     ) -> Result<impl Iterator<Item = T>> {
@@ -252,9 +251,9 @@ where
     }
 
     /// Take a document and a primary key and insert into a collection.
-    pub(crate) async fn insert<I>(
+    pub(crate) async fn insert(
         &self,
-        tx: &impl WriteTx<I>,
+        tx: &impl WriteTx,
         doc: &T,
         primary_key: &[u8],
     ) -> Result<()> {

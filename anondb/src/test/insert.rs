@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Document)]
+#[derive(Document, Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TestDocument {
     pub id: u128,
     pub other: String,
@@ -17,10 +17,10 @@ impl Default for TestDocument {
 
 #[tokio::test]
 async fn should_insert_document() -> Result<()> {
-    #[derive(AnonDB)]
+    #[derive(AnonDB, Clone)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id)]
-        // #[anondb(index = id, other; unique = true)]
+        #[anondb(index = id, other; unique = true)]
         pub test: Collection<TestDocument, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;

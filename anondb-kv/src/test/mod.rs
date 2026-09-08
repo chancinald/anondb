@@ -8,16 +8,16 @@ mod transaction;
 use anyhow::Result;
 use domacro::domacro;
 
-use crate::*;
+use super::*;
 
 #[macro_export]
 macro_rules! all_kv_impls {
     ($fn_name:ident) => {
         paste::paste! {
-            #[test]
-            fn [<redb_ $fn_name>]() -> Result<()> {
-                let kv = RedbKV::in_memory(None)?;
-                $fn_name(&kv)?;
+            #[tokio::test]
+            async fn [<memory_ $fn_name>]() -> Result<()> {
+                let kv = MemoryKV::new(None).await?;
+                $fn_name(&kv).await?;
                 Ok(())
             }
         }
@@ -28,27 +28,27 @@ macro_rules! all_kv_impls {
 macro_rules! all_read_impls {
     ($fn_name:ident) => {
         paste::paste! {
-            #[test]
-            fn [<redb_ $fn_name>]() -> Result<()> {
-                let kv = RedbKV::in_memory(None)?;
-                $fn_name(&kv)?;
+            #[tokio::test]
+            async fn [<memory_ $fn_name>]() -> Result<()> {
+                let kv = MemoryKV::new(None).await?;
+                $fn_name(&kv).await?;
                 Ok(())
             }
 
-            #[test]
-            fn [<redb_read_tx_ $fn_name>]() -> Result<()> {
-                let kv = RedbKV::in_memory(None)?;
-                let read = kv.read_tx()?;
-                $fn_name(&read)?;
+            #[tokio::test]
+            async fn [<memory_read_tx_ $fn_name>]() -> Result<()> {
+                let kv = MemoryKV::new(None).await?;
+                let read = kv.read_tx().await?;
+                $fn_name(&read).await?;
                 Ok(())
             }
 
-            #[test]
-            fn [<redb_write_tx_ $fn_name>]() -> Result<()> {
-                let kv = RedbKV::in_memory(None)?;
-                let write = kv.write_tx()?;
-                $fn_name(&write)?;
-                write.commit()?;
+            #[tokio::test]
+            async fn [<memory_write_tx_ $fn_name>]() -> Result<()> {
+                let kv = MemoryKV::new(None).await?;
+                let write = kv.write_tx().await?;
+                $fn_name(&write).await?;
+                write.commit().await?;
                 Ok(())
             }
         }
@@ -59,19 +59,19 @@ macro_rules! all_read_impls {
 macro_rules! all_read_write_impls {
     ($fn_name:ident) => {
         paste::paste! {
-            #[test]
-            fn [<redb_ $fn_name>]() -> Result<()> {
-                let kv = RedbKV::in_memory(None)?;
-                $fn_name(&kv)?;
+            #[tokio::test]
+            async fn [<memory_ $fn_name>]() -> Result<()> {
+                let kv = MemoryKV::new(None).await?;
+                $fn_name(&kv).await?;
                 Ok(())
             }
 
-            #[test]
-            fn [<redb_write_tx_ $fn_name>]() -> Result<()> {
-                let kv = RedbKV::in_memory(None)?;
-                let write = kv.write_tx()?;
-                $fn_name(&write)?;
-                write.commit()?;
+            #[tokio::test]
+            async fn [<memory_write_tx_ $fn_name>]() -> Result<()> {
+                let kv = MemoryKV::new(None).await?;
+                let write = kv.write_tx().await?;
+                $fn_name(&write).await?;
+                write.commit().await?;
                 Ok(())
             }
         }

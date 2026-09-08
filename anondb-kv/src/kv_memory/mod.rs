@@ -14,6 +14,7 @@ mod write_tx;
 use read_tx::*;
 use write_tx::*;
 
+#[derive(Debug)]
 pub struct MemoryKVItem {
     key: Vec<u8>,
     value: Vec<u8>,
@@ -35,9 +36,9 @@ pub struct MemoryKV {
 }
 
 impl KV for MemoryKV {
+    type Item = MemoryKVItem;
     type ReadTransaction = MemoryKVReadTransaction;
     type WriteTransaction = MemoryKVWriteTransaction;
-    type Item = MemoryKVItem;
     type Config = ();
 
     async fn new(_config_maybe: Option<Self::Config>) -> Result<Self> {
@@ -57,7 +58,8 @@ impl KV for MemoryKV {
     }
 }
 
-impl ReadOperations<MemoryKVItem> for MemoryKV {
+impl ReadOperations for MemoryKV {
+    type Item = MemoryKVItem;
     async fn count(&self, table: &str) -> Result<u64> {
         let tx = self.read_tx().await?;
         Ok(tx.count(table).await?)
@@ -72,7 +74,8 @@ impl ReadOperations<MemoryKVItem> for MemoryKV {
     }
 }
 
-impl WriteOperations<MemoryKVItem> for MemoryKV {
+impl WriteOperations for MemoryKV {
+    type Item = MemoryKVItem;
     async fn clear(&self, table: &str) -> Result<()> {
         match self.tables.write().await.get_mut(table) {
             Some(table) => {

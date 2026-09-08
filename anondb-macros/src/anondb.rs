@@ -44,136 +44,33 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
     }
 
-    let kv_as_bytes = if let Some(field) = fields.first() {
-        let field_name = field.ident.clone().unwrap();
-        quote! {
-            self.#field_name.kv().as_bytes()
-        }
-    } else {
-        unimplemented!()
-    };
-
-    let assign_collection_vars = fields.iter().map(|f| {
+    let defaults = fields.iter().map(|f| {
         let field_name = f.ident.clone().unwrap();
         let doc_generic = field_doc_generic.get(&field_name).expect("expected field document type to be known");
         let primary_key_parts = field_primary_keys.get(&field_name).unwrap();
         let primary_key_fields = primary_key_parts.fields.iter().map(|v| v.name.clone()).collect::<Vec<_>>();
-        let mut all_indexed_fields = HashMap::<Ident, ()>::default();
-        for index in field_indices.get(&field_name).cloned().unwrap_or_default() {
-            for field in index.fields {
-                all_indexed_fields.insert(field.name, ());
-            }
-        }
-
-        let field_extractors = all_indexed_fields.iter().map(|(k, _)| {
-            quote! {
-                if let Some(v) = query.#k.as_ref() {
-                    out.insert(stringify!(#k).to_string(), v.into());
-                }
-            }
-        });
-        let extract_index_fields = quote! {
-            {
-                fn extractor(query: & <#doc_generic as #crate_name::Queryable> ::DocumentQuery) -> std::collections::HashMap<String, #crate_name::Param> {
-                    let mut out = std::collections::HashMap::default();
-                    #(#field_extractors)*
-                    out
-                }
-                self.#field_name.set_field_extractor(extractor);
-            }
-        };
-
-        let index_assignments = field_indices
-            .get(&field_name)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|index| {
-                let fields = index
-                    .fields
-                    .iter()
-                    .map(|i| i.name.clone())
-                    .collect::<Vec<_>>();
-
-                let options = index.options.iter().map(|(k, v)| quote! { #k: #v }).collect::<Vec<_>>();
-                quote! {
-                    self.#field_name.add_index(
-                        #crate_name::Index {
-                            collection_name: stringify!(#field_name).into(),
-                            field_names: vec![
-                                #(
-                                    (
-                                        stringify!(#fields).to_string(),
-                                        <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields ().stats()
-                                    ),
-                                )*
-                            ],
-                            serialize: |doc: &#doc_generic| -> Vec<u8> {
-                                let mut key = #crate_name::anondb_kv::LexicographicKey::default();
-                                #({
-                                    let bytes = <_ as #crate_name::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#fields);
-                                    key.append_key_slice(bytes.as_slice());
-                                })*
-                                key.take()
-                            },
-                            options: #crate_name::IndexOptions {
-                                #(#options,)*
-                                ..Default::default()
-                            }
-                        }
-                    )?;
-                }
-            });
         quote! {
-            {
-                // needed to access stats functions
-                use #crate_name::SerializeLexicographic;
-                // assign the kv
-                self.#field_name.set_kv(kv.clone())?;
-                // assign the collection name as a string
-                self.#field_name.set_name(stringify!(#field_name).into())?;
-                // assign the primary key
-                self.#field_name.set_primary_key((
-                        vec![#(
-                            (
-                                stringify!(#primary_key_fields).to_string(), 
-                                <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#primary_key_fields ().stats()
-                             )
-                            ),*], |doc: &#doc_generic| -> Vec<u8> {
-                    let mut key = #crate_name::anondb_kv::LexicographicKey::default();
-                    #(
-                        let bytes = <_ as #crate_name::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#primary_key_fields);
-                        key.append_key_slice(bytes.as_slice());
-                    )*
-                    key.take()
-                }))?;
-                #extract_index_fields
-                // assign all indices
-                #(#index_assignments)*
-            }
-        }
-    });
-
-    let collection_checks = fields.iter().map(|f| {
-        let field_name = &f.ident;
-        quote! {
-            for table_name in self.#field_name.table_names() {
-                if let Some(collection) = all_table_names.get(&table_name) {
-                    #crate_name::recurse::anyhow::bail!("AnonDB: invalid configuration. Table name \"{}\" is used by two different collections: \"{}\" and \"{}\"", table_name, collection, stringify!(#field_name));
-                }
-                all_table_names.insert(table_name.into(), stringify!(#field_name).into());
-            }
-            self.#field_name.construct_indices()?;
-            if !self.#field_name.has_primary_key() {
-                #crate_name::recurse::anyhow::bail!("Collection \"{}\" does not have a primary key defined!", self.#field_name.name());
-            }
-        }
-    });
-
-    let defaults = fields.iter().map(|f| {
-        let field_name = &f.ident;
-        quote! {
-            #field_name: #crate_name::Collection::default(),
+            #field_name: #crate_name::Collection::new(
+                kv.clone(),
+                stringify!(#field_name).into(), 
+                #crate_name::Index::new_primary(
+                    stringify!(#field_name).into(),
+                    vec![#(
+                        (
+                            stringify!(#primary_key_fields).to_string(), 
+                            <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#primary_key_fields ().stats()
+                         )
+                        ),*
+                    ],
+                    |doc: &#doc_generic| -> Vec<u8> {
+                        let mut key = #crate_name::anondb_kv::LexicographicKey::default();
+                        #(
+                            let bytes = <_ as #crate_name::anondb_kv::SerializeLexicographic>::serialize_lex(&doc.#primary_key_fields);
+                            key.append_key_slice(bytes.as_slice());
+                        )*
+                        key.take()
+                    })
+                ),
         }
     });
 
@@ -187,47 +84,13 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let expanded = quote! {
-        impl #impl_generics Default for #name #ty_generics #where_clause {
-            fn default() -> Self {
-                Self {
-                    #(#defaults)*
-                }
-            }
-        }
-
         impl #impl_generics #name #ty_generics #where_clause {
             /// Initialize the database backed by a kv that exists in memory.
-            pub fn in_memory(bytes_maybe: Option<&[u8]>) -> #crate_name::recurse::anyhow::Result<::std::sync::Arc<Self>> {
-                let mut s = Self::default();
-                let kv = ::std::sync::Arc::new(#kv_generic_name::in_memory(bytes_maybe)?);
-                s.setup(kv)?;
-                Ok(::std::sync::Arc::new(s))
-            }
-
-            pub fn as_bytes(&self) -> #crate_name::recurse::anyhow::Result<impl Iterator<Item = u8>> {
-                #kv_as_bytes
-                // #kv_generic_name::as_bytes(self.kv())
-            }
-
-            /// Initialize the database backed by a kv that exists on disk.
-            pub fn at_path(path: &::std::path::Path) -> #crate_name::recurse::anyhow::Result<::std::sync::Arc<Self>> {
-                let mut s = Self::default();
-                let kv = ::std::sync::Arc::new(#kv_generic_name::at_path(path)?);
-                s.setup(kv)?;
-                Ok(::std::sync::Arc::new(s))
-            }
-
-            /// Assign collection variables based on struct values.
-            fn setup(&mut self, kv: ::std::sync::Arc<#kv_generic_name>) -> #crate_name::recurse::anyhow::Result<()> {
-                // assign values to the collection such as kv, name, indices
-                #(#assign_collection_vars)*
-
-                let mut all_table_names = ::std::collections::HashMap::<String, String>::default();
-                // Check the consistency of the database configuration. Check for conflicting
-                // collection/index names. In the future read a configuration from the kv to
-                // automatically detect schema changes and check for inconsistencies.
-                #(#collection_checks)*
-                Ok(())
+            pub async fn new(config_maybe: Option<#kv_generic_name::Config>) -> Result<Self> {
+                let kv = #kv_generic_name::new(config_maybe).await?;
+                Ok(Self {
+                    #(#defaults)*
+                })
             }
         }
     };

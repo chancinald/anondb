@@ -1,11 +1,10 @@
 [package]
 name = "anondb"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 description = "Database abstraction over a generic KV"
-repository = "https://github.com/chancehudson/anondb.git"
 
 [lib]
 
@@ -24,3 +23,4 @@ anondb-macros = { workspace = true }
 
 [dev-dependencies]
 rand = { workspace = true }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

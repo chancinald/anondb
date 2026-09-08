@@ -1,11 +1,10 @@
 use std::marker::PhantomData;
 
-/// Allow a type to be serializeo to lexicographically comparable bytes
+/// Allow a type to be serialized to lexicographically comparable bytes
 pub trait SerializeLexicographic {
     fn serialize_lex(&self) -> Vec<u8>;
     fn min() -> Vec<u8>;
     fn max() -> Option<Vec<u8>>;
-
     fn fixed_width() -> Option<u32> {
         None
     }

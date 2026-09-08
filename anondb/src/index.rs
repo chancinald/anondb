@@ -29,7 +29,7 @@ where
     /// The field names of the document type along with the byte length (if constant)
     pub field_names: Vec<(String, LexStats)>,
     /// Take a document of type `T` and serialize it into a lexicographically sortable key
-    pub serialize: fn(&T) -> Vec<u8>,
+    pub serialize: Box<fn(&T) -> Vec<u8>>,
     /// Options for the index
     pub options: IndexOptions,
 }
@@ -38,6 +38,36 @@ impl<T> Index<T>
 where
     T: Serialize + for<'de> Deserialize<'de> + Queryable,
 {
+    pub fn new(
+        collection_name: String,
+        field_names: Vec<(String, LexStats)>,
+        serialize: fn(&T) -> Vec<u8>,
+        options: IndexOptions,
+    ) -> Self {
+        Self {
+            collection_name,
+            field_names,
+            serialize: Box::new(serialize),
+            options,
+        }
+    }
+
+    pub fn new_primary(
+        collection_name: String,
+        field_names: Vec<(String, LexStats)>,
+        serialize: fn(&T) -> Vec<u8>,
+    ) -> Self {
+        Self {
+            collection_name,
+            field_names,
+            serialize: Box::new(serialize),
+            options: IndexOptions {
+                unique: true,
+                primary: true,
+            },
+        }
+    }
+
     /// Name of the table in the kv where the index will be stored. This should be a combination of
     /// the collection name and the fields being indexed.
     pub fn table_name(&self) -> String {
@@ -59,9 +89,9 @@ where
 
     /// TODO: allow variable length serialization only as the final element in an index
     /// Accept a set of field keys as lexicographically serialized bytes
-    pub fn query<'tx>(
+    pub fn query<'tx, I>(
         &self,
-        tx: &'tx impl ReadOperations,
+        tx: &'tx impl ReadOperations<I>,
         query: &T::DocumentQuery,
         index_fields: &HashMap<String, Param>,
     ) -> Result<impl Iterator<Item = T>> {
@@ -136,44 +166,47 @@ where
         println!("{:?}", scan_range);
         let table_name = self.table_name();
         let docs = if self.options.unique {
-            tx.range_buffered(&table_name, scan_range.as_slice(), |_k, v, _done| {
-                // v represents the primary key, we'll load the document and check it against the
-                // selector
-                let doc_bytes = if self.options.primary {
-                    v.to_vec()
-                } else {
-                    tx.get(&self.collection_name, v)?.ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Index \"{table_name}\" referencing primary key that does not exist!"
-                        )
-                    })?
-                };
-                // parse the bytes
-                let doc = rmp_serde::from_slice::<T>(&doc_bytes)?;
-                if doc.matches(query) {
-                    Ok(Some(doc))
-                } else {
-                    Ok(None)
-                }
-            })?
+            // tx.range_buffered(&table_name, scan_range.as_slice(), |_k, v, _done| {
+            //     // v represents the primary key, we'll load the document and check it against the
+            //     // selector
+            //     let doc_bytes = if self.options.primary {
+            //         v.to_vec()
+            //     } else {
+            //         tx.get(&self.collection_name, v)?.ok_or_else(|| {
+            //             anyhow::anyhow!(
+            //                 "Index \"{table_name}\" referencing primary key that does not exist!"
+            //             )
+            //         })?
+            //     };
+            //     // parse the bytes
+            //     let doc = rmp_serde::from_slice::<T>(&doc_bytes)?;
+            //     if doc.matches(query) {
+            //         Ok(Some(doc))
+            //     } else {
+            //         Ok(None)
+            //     }
+            // })?
         } else {
-            tx.range_buffered_multimap(&table_name, scan_range.as_slice(), |_k, v, _done| {
-                // multimap index never stores full documents, always load from the primary table
-                let doc_bytes = tx.get(&self.collection_name, v)?.ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Index \"{table_name}\" referencing primary key that does not exist!"
-                    )
-                })?;
-                // parse the bytes
-                let doc = rmp_serde::from_slice::<T>(&doc_bytes)?;
-                if doc.matches(query) {
-                    Ok(Some(doc))
-                } else {
-                    Ok(None)
-                }
-            })?
+            unimplemented!()
+            // tx.range_buffered_multimap(&table_name, scan_range.as_slice(), |_k, v, _done| {
+            //     // multimap index never stores full documents, always load from the primary table
+            //     let doc_bytes = tx.get(&self.collection_name, v)?.ok_or_else(|| {
+            //         anyhow::anyhow!(
+            //             "Index \"{table_name}\" referencing primary key that does not exist!"
+            //         )
+            //     })?;
+            //     // parse the bytes
+            //     let doc = rmp_serde::from_slice::<T>(&doc_bytes)?;
+            //     if doc.matches(query) {
+            //         Ok(Some(doc))
+            //     } else {
+            //         Ok(None)
+            //     }
+            // })?
         };
-        Ok(docs.into_iter())
+        unimplemented!();
+        // Ok(docs.into_iter())
+        Ok(std::iter::empty())
     }
 
     /// Determine how compatible this index is with a given query. A higher score indicates a
@@ -239,7 +272,7 @@ where
     }
 
     /// Take a document and a primary key and insert into a collection.
-    pub fn insert(&self, tx: &impl WriteTx, doc: &T, primary_key: &[u8]) -> Result<()> {
+    pub async fn insert<I>(&self, tx: &impl WriteTx<I>, doc: &T, primary_key: &[u8]) -> Result<()> {
         let key = (self.serialize)(doc);
         let table_name = self.table_name();
         let bytes = if self.options.primary {
@@ -248,16 +281,17 @@ where
             Cow::from(primary_key)
         };
         if self.options.unique {
-            if tx.get(&table_name, key.as_slice())?.is_some() {
+            if tx.get(&table_name, key.as_slice()).await?.is_some() {
                 anyhow::bail!(
                     "Collection \"{}\" index \"{}\" cannot insert document, uniqueness constraint violated",
                     self.collection_name,
                     table_name
                 );
             }
-            tx.insert(&table_name, key.as_slice(), &bytes)?;
+            tx.insert(&table_name, key.as_slice(), &bytes).await?;
         } else {
-            tx.insert_multimap(&table_name, key.as_slice(), &bytes)?;
+            unimplemented!()
+            // tx.insert_multimap(&table_name, key.as_slice(), &bytes)?;
         }
         Ok(())
     }

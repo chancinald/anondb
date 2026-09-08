@@ -52,14 +52,13 @@ where
     /// Insert a document into a collection. All relevant indices will be updated.
     pub async fn insert(&self, document: &T) -> Result<()> {
         let tx = self.kv().write_tx().await?;
-        let primary_key = (self.primary_key_index.serialize)(document);
-
+        let primary_key = (self.primary_key_index.serialize_key)(document);
         self.primary_key_index()
             .insert(&tx, document, &primary_key)
             .await?;
-        // for index in &self.indices {
-        //     index.insert(&tx, document, &primary_key)?;
-        // }
+        for index in &self.indices {
+            index.insert(&tx, document, &primary_key).await?;
+        }
         tx.commit().await?;
         Ok(())
     }

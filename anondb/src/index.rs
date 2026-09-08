@@ -24,13 +24,14 @@ where
     T: Serialize + for<'de> Deserialize<'de> + Queryable,
 {
     /// The name of the collection the index belongs to.
-    pub collection_name: String,
+    collection_name: String,
     /// The field names of the document type along with the byte length (if constant)
-    pub field_names: Vec<(String, LexStats)>,
+    field_names: Vec<(String, LexStats)>,
     /// Take a document of type `T` and serialize it into a lexicographically sortable key
-    pub serialize: Box<fn(&T) -> Vec<u8>>,
+    pub(crate) serialize_key: Box<fn(&T) -> Vec<u8>>,
     /// Options for the index
-    pub options: IndexOptions,
+    options: IndexOptions,
+    kv_table_name: String,
 }
 
 impl<T> Index<T>
@@ -43,30 +44,26 @@ where
         serialize: fn(&T) -> Vec<u8>,
         options: IndexOptions,
     ) -> Self {
-        Self {
-            collection_name,
-            field_names,
-            serialize: Box::new(serialize),
-            options,
-        }
-    }
-
-    /// Name of the table in the kv where the index will be stored. This should be a combination of
-    /// the collection name and the fields being indexed.
-    pub fn table_name(&self) -> String {
-        if self.options.primary {
-            self.collection_name.to_string()
+        let kv_table_name = if options.primary {
+            collection_name.clone()
         } else {
             format!(
                 "{}_{}{}",
-                self.collection_name,
-                self.field_names
+                collection_name,
+                field_names
                     .iter()
                     .map(|(name, _)| name.to_string())
                     .collect::<Vec<_>>()
                     .join("_"),
-                if self.options.unique { "_unique" } else { "" }
+                if options.unique { "_unique" } else { "" }
             )
+        };
+        Self {
+            collection_name,
+            field_names,
+            serialize_key: Box::new(serialize),
+            options,
+            kv_table_name,
         }
     }
 
@@ -147,7 +144,7 @@ where
         }
         let scan_range = GeneralRange(min_bound, max_bound);
         println!("{:?}", scan_range);
-        let table_name = self.table_name();
+        let table_name = &self.kv_table_name;
         let docs = if self.options.unique {
             // tx.range_buffered(&table_name, scan_range.as_slice(), |_k, v, _done| {
             //     // v represents the primary key, we'll load the document and check it against the
@@ -255,23 +252,35 @@ where
     }
 
     /// Take a document and a primary key and insert into a collection.
-    pub async fn insert<I>(
+    pub(crate) async fn insert<I>(
         &self,
         tx: &impl WriteTx<I>,
         doc: &T,
-        _primary_key: &[u8],
+        primary_key: &[u8],
     ) -> Result<()> {
-        let key = (self.serialize)(doc);
-        let table_name = self.table_name();
-        if self.options.unique {
-            if tx.get(&table_name, key.as_slice()).await?.is_some() {
+        let key = (self.serialize_key)(doc);
+        if self.options.primary {
+            if tx.get(&self.kv_table_name, key.as_slice()).await?.is_some() {
+                anyhow::bail!(
+                    "Collection \"{}\" primary index cannot insert document, uniqueness constraint violated",
+                    self.collection_name,
+                );
+            }
+            tx.insert(
+                &self.kv_table_name,
+                key.as_slice(),
+                &rmp_serde::to_vec_named(doc)?,
+            )
+            .await?;
+        } else if self.options.unique {
+            if tx.get(&self.kv_table_name, key.as_slice()).await?.is_some() {
                 anyhow::bail!(
                     "Collection \"{}\" index \"{}\" cannot insert document, uniqueness constraint violated",
                     self.collection_name,
-                    table_name
+                    self.kv_table_name
                 );
             }
-            tx.insert(&table_name, key.as_slice(), &rmp_serde::to_vec_named(doc)?)
+            tx.insert(&self.kv_table_name, key.as_slice(), primary_key)
                 .await?;
         } else {
             unimplemented!()

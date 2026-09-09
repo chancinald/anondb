@@ -9,12 +9,52 @@ pub struct RedbItem<'a> {
     pub item: (MaybeGuarded<'a>, MaybeGuarded<'a>),
 }
 
+impl<'a>
+    From<(
+        AccessGuard<'a, &'static [u8]>,
+        AccessGuard<'a, &'static [u8]>,
+    )> for RedbItem<'a>
+{
+    fn from(
+        value: (
+            AccessGuard<'a, &'static [u8]>,
+            AccessGuard<'a, &'static [u8]>,
+        ),
+    ) -> Self {
+        RedbItem {
+            item: (
+                MaybeGuarded::Guarded(value.0.into()),
+                MaybeGuarded::Guarded(value.1.into()),
+            ),
+        }
+    }
+}
+
+impl<'a> From<(&[u8], AccessGuard<'a, &'static [u8]>)> for RedbItem<'a> {
+    fn from(value: (&[u8], AccessGuard<'a, &'static [u8]>)) -> Self {
+        RedbItem {
+            item: (
+                MaybeGuarded::Owned(value.0.into()),
+                MaybeGuarded::Guarded(value.1.into()),
+            ),
+        }
+    }
+}
+
+impl<'a> From<(Vec<u8>, Vec<u8>)> for RedbItem<'a> {
+    fn from(value: (Vec<u8>, Vec<u8>)) -> Self {
+        RedbItem {
+            item: (MaybeGuarded::Owned(value.0), MaybeGuarded::Owned(value.1)),
+        }
+    }
+}
+
 impl<'a> OpaqueItem for RedbItem<'a> {
     fn key(&self) -> &[u8] {
         self.item.0.value()
     }
 
-    fn value(&self) -> &[u8] {
+    async fn value(&self) -> &[u8] {
         self.item.1.value()
     }
 }

@@ -1,20 +1,20 @@
-// #[cfg(feature = "redb")]
-// mod kv_redb;
 mod kv_memory;
+#[cfg(feature = "redb")]
+mod kv_redb;
 
 #[cfg(test)]
 mod test;
 
 use std::ops::RangeBounds;
 
-// #[cfg(feature = "redb")]
-// pub use kv_redb::*;
 pub use kv_memory::*;
+#[cfg(feature = "redb")]
+pub use kv_redb::*;
 
 use anyhow::Result;
 
 /// A standard interface for accessing entries in a KV.
-pub trait OpaqueItem: std::fmt::Debug {
+pub trait OpaqueItem {
     fn key(&self) -> &[u8];
     fn value(&self) -> impl Future<Output = &[u8]>;
 }
@@ -75,12 +75,4 @@ pub trait RangeReadOperation {
 pub trait WriteTx: ReadOperations + WriteOperations {
     type Item: OpaqueItem;
     fn commit(self) -> impl Future<Output = Result<()>>;
-}
-
-#[cfg(test)]
-pub fn rand_utf8(len: usize) -> String {
-    vec![char::default(); len]
-        .into_iter()
-        .map(|_| rand::random::<char>())
-        .collect()
 }

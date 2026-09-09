@@ -15,14 +15,14 @@ redb = ["dep:redb"]
 [dependencies]
 anyhow = { workspace = true }
 log = { workspace = true }
+rand = { workspace = true }
 
-redb = { version = "2.6.3", optional = true }
+either = "1"
+redb = { version = "4", optional = true }
 tokio = { version = "1", default-features = false, features = ["sync"] }
 rpds = "1"
 
 [dev-dependencies]
-rand = { workspace = true }
-rstest = "0"
 paste = "1"
 domacro = "0"
 tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread"] }

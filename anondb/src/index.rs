@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::Bound;
 use std::ops::RangeBounds;
 
@@ -17,7 +16,7 @@ pub struct IndexOptions {
 }
 
 // TODO: explicitly check and disallow duplicate field names
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Index<T>
 where
     T: Serialize + for<'de> Deserialize<'de> + Queryable,
@@ -66,61 +65,25 @@ where
         }
     }
 
+    pub(crate) fn field_names(&self) -> &Vec<(String, LexStats)> {
+        &self.field_names
+    }
+
     /// TODO: allow variable length serialization only as the final element in an index
     /// Accept a set of field keys as lexicographically serialized bytes
-    pub fn query<'tx>(
-        &self,
-        tx: &'tx impl ReadOperations,
-        query: &T::DocumentQuery,
-        index_fields: &HashMap<String, Param>,
-    ) -> Result<impl Iterator<Item = T>> {
+    pub async fn query<'a>(
+        &'a self,
+        tx: impl ReadOperations + RangeReadOperation + 'a,
+        query: <T as Queryable>::DocumentQuery,
+        index_fields: Vec<(&str, Param)>,
+    ) -> Result<impl futures::Stream<Item = Result<T>> + 'a> {
         let mut min_key = LexicographicKey::default();
         let mut max_key = LexicographicKey::default();
         let mut min_bound: Bound<Vec<u8>> = Bound::Unbounded;
         let mut max_bound: Bound<Vec<u8>> = Bound::Unbounded;
         for (name, lex_stats) in &self.field_names {
-            if let Some(query_param) = index_fields.get(name) {
-                match query_param {
-                    Param::Eq(v) => {
-                        min_key.append_key_slice(v);
-                        max_key.append_key_slice(v);
-                        min_bound = Bound::Included(min_key.to_vec());
-                        max_bound = Bound::Included({
-                            let mut v = max_key.clone();
-                            v.append_upper_inclusive_byte();
-                            v.take()
-                        });
-                    }
-                    Param::In(_v) => {
-                        unimplemented!()
-                    }
-                    Param::Nin(_) | Param::Neq(_) => {
-                        break;
-                    }
-                    Param::Range(v) => {
-                        match v.start_bound() {
-                            Bound::Unbounded => {}
-                            Bound::Included(v) | Bound::Excluded(v) => {
-                                // we always treat it as included to account for earlier fields
-                                // that may exist in the key
-                                min_key.append_key_slice(&v);
-                                min_bound = Bound::Included(min_key.take());
-                            }
-                        }
-                        match v.end_bound() {
-                            Bound::Unbounded => {
-                                max_bound = Bound::Unbounded;
-                            }
-                            Bound::Included(v) | Bound::Excluded(v) => {
-                                max_key.append_key_slice(&v);
-                                max_key.append_upper_inclusive_byte();
-                                max_bound = Bound::Included(max_key.take());
-                            }
-                        }
-                        break;
-                    }
-                }
-            } else {
+            let Some((_, query_param)) = index_fields.iter().find(|(pname, _)| pname == name)
+            else {
                 // the query isn't using this field of the index. If this field is constant width
                 // we can continue attempting to use the index.
                 if let Some(width) = lex_stats.fixed_width {
@@ -139,115 +102,87 @@ where
 
                 // otherwise we have to halt and begin scanning
                 break;
-            }
-        }
-        let scan_range = GeneralRange(min_bound, max_bound);
-        println!("{:?}", scan_range);
-        let table_name = &self.kv_table_name;
-        let docs = if self.options.unique {
-            // tx.range_buffered(&table_name, scan_range.as_slice(), |_k, v, _done| {
-            //     // v represents the primary key, we'll load the document and check it against the
-            //     // selector
-            //     let doc_bytes = if self.options.primary {
-            //         v.to_vec()
-            //     } else {
-            //         tx.get(&self.collection_name, v)?.ok_or_else(|| {
-            //             anyhow::anyhow!(
-            //                 "Index \"{table_name}\" referencing primary key that does not exist!"
-            //             )
-            //         })?
-            //     };
-            //     // parse the bytes
-            //     let doc = rmp_serde::from_slice::<T>(&doc_bytes)?;
-            //     if doc.matches(query) {
-            //         Ok(Some(doc))
-            //     } else {
-            //         Ok(None)
-            //     }
-            // })?
-        } else {
-            unimplemented!()
-            // tx.range_buffered_multimap(&table_name, scan_range.as_slice(), |_k, v, _done| {
-            //     // multimap index never stores full documents, always load from the primary table
-            //     let doc_bytes = tx.get(&self.collection_name, v)?.ok_or_else(|| {
-            //         anyhow::anyhow!(
-            //             "Index \"{table_name}\" referencing primary key that does not exist!"
-            //         )
-            //     })?;
-            //     // parse the bytes
-            //     let doc = rmp_serde::from_slice::<T>(&doc_bytes)?;
-            //     if doc.matches(query) {
-            //         Ok(Some(doc))
-            //     } else {
-            //         Ok(None)
-            //     }
-            // })?
-        };
-        unimplemented!();
-        // Ok(docs.into_iter())
-        Ok(std::iter::empty())
-    }
-
-    /// Determine how compatible this index is with a given query. A higher score indicates a
-    /// faster query. An index that matches exactly returns a high score. An index that provides
-    /// no acceleration returns 0.
-    pub fn query_compat(
-        &self,
-        _query: &T::DocumentQuery,
-        index_params: &HashMap<String, Param>,
-    ) -> Result<usize> {
-        let mut is_full_prefix = true; // are we able to utilize all of the fields in this index?
-        let mut score: usize = 0;
-        for (i, (name, lex_stats)) in self.field_names.iter().enumerate() {
-            // is this the final field in the index?
-            let is_last_field = i == self.field_names.len() - 1;
-            if let Some(query_param) = index_params.get(name) {
-                score += 1;
-                match query_param {
-                    Param::Eq(_) => {
-                        score = score.saturating_mul(10);
-                    }
-                    Param::In(_) => {
-                        // an In operator requires a constant number of reads
-                        score = score.saturating_mul(8);
-                    }
-                    Param::Range(_) => {
-                        score = score.saturating_mul(5);
-                        if !is_last_field {
-                            // if we have a range on a field that is not the last field in the
-                            // index we don't consider this a full prefix match, because we'll have
-                            // to iterate over other fields as well
-                            is_full_prefix = false;
+            };
+            match query_param {
+                Param::Eq(v) => {
+                    min_key.append_key_slice(v);
+                    max_key.append_key_slice(v);
+                    min_bound = Bound::Included(min_key.to_vec());
+                    max_bound = Bound::Included({
+                        let mut v = max_key.clone();
+                        v.append_upper_inclusive_byte();
+                        v.take()
+                    });
+                }
+                Param::In(_v) => {
+                    unimplemented!()
+                }
+                Param::Nin(_) | Param::Neq(_) => {
+                    break;
+                }
+                Param::Range(v) => {
+                    match v.start_bound() {
+                        Bound::Unbounded => {}
+                        Bound::Included(v) | Bound::Excluded(v) => {
+                            // we always treat it as included to account for earlier fields
+                            // that may exist in the key
+                            min_key.append_key_slice(&v);
+                            min_bound = Bound::Included(min_key.take());
                         }
-                        break; // break when we encounter a field that would necessitate a scan
                     }
-                    Param::Neq(_) => {
-                        score = score.saturating_mul(2);
-                        if !is_last_field {
-                            is_full_prefix = false;
+                    match v.end_bound() {
+                        Bound::Unbounded => {
+                            max_bound = Bound::Unbounded;
                         }
-                        break;
-                    }
-                    Param::Nin(_) => {
-                        score = score.saturating_mul(2);
-                        if !is_last_field {
-                            is_full_prefix = false;
+                        Bound::Included(v) | Bound::Excluded(v) => {
+                            max_key.append_key_slice(&v);
+                            max_key.append_upper_inclusive_byte();
+                            max_bound = Bound::Included(max_key.take());
                         }
-                        break;
                     }
+                    break;
                 }
             }
-            if lex_stats.fixed_width.is_none() {
-                if !is_last_field {
-                    is_full_prefix = false;
+        }
+        Ok(async_stream::try_stream! {
+            let scan_range = GeneralRange(min_bound, max_bound);
+            if self.options.unique || self.options.primary {
+                for v in tx.range(&self.kv_table_name, scan_range).await? {
+                    let item = v?;
+                    let doc = if self.options.primary {
+                        rmp_serde::from_slice::<T>(item.value().await)?
+                    } else {
+                        let entry = tx.get(&self.collection_name, item.value().await)
+                            .await?
+                            .ok_or_else(|| anyhow::anyhow!(
+                                "Index \"{}\" referencing primary key that does not exist!",
+                                self.kv_table_name
+                            ))?;
+                        rmp_serde::from_slice::<T>(entry.value().await)?
+                    };
+                    if doc.matches(&query) {
+                        yield doc;
+                    }
                 }
-                break;
+            } else {
+                unimplemented!()
+                // tx.range_buffered_multimap(&table_name, scan_range.as_slice(), |_k, v, _done| {
+                //     // multimap index never stores full documents, always load from the primary table
+                //     let doc_bytes = tx.get(&self.collection_name, v)?.ok_or_else(|| {
+                //         anyhow::anyhow!(
+                //             "Index \"{table_name}\" referencing primary key that does not exist!"
+                //         )
+                //     })?;
+                //     // parse the bytes
+                //     let doc = rmp_serde::from_slice::<T>(&doc_bytes)?;
+                //     if doc.matches(query) {
+                //         Ok(Some(doc))
+                //     } else {
+                //         Ok(None)
+                //     }
+                // })?
             }
-        }
-        if is_full_prefix {
-            score = score.saturating_mul(10000);
-        }
-        Ok(score)
+        })
     }
 
     /// Take a document and a primary key and insert into a collection.

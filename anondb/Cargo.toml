@@ -21,6 +21,9 @@ anyhow = { workspace = true }
 anondb-kv = { workspace = true }
 anondb-macros = { workspace = true }
 
+futures = "0.3"
+async-stream = "0.3"
+
 [dev-dependencies]
 rand = { workspace = true }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

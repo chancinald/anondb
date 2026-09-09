@@ -8,6 +8,9 @@ async fn compound_primary_key() -> Result<()> {
         pub test: Collection<TestDocument, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;
+    // let q = TestDocument::query()
+    //     .id0(ParamTyped::Eq(0))
+    //     .id1(ParamTyped::Eq(1));
 
     let mut doc0 = TestDocument::default();
 
@@ -21,12 +24,13 @@ async fn compound_primary_key() -> Result<()> {
         .await
         .expect_err("Should fail to insert duplicate compound primary key");
 
-    // let doc = db
-    //     .test
-    //     .find_one(TestDocument::query().id1(doc0.id1))?
-    //     .expect("unable to find inserted doc");
-    //
-    // assert_eq!(doc, doc0);
+    let doc = db
+        .test
+        .find_one(TestDocument::query().id1(doc0.id1))
+        .await?
+        .expect("unable to find inserted doc");
+
+    assert_eq!(doc, doc0);
     Ok(())
 }
 

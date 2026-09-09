@@ -30,14 +30,15 @@ async fn should_insert_document() -> Result<()> {
     db.test.insert(&doc).await?;
     assert_eq!(db.test.count().await?, 1);
 
-    // let found_doc = db
-    //     .test
-    //     .find_one(TestDocument::query())?
-    //     .expect("expected to retrieve a document using empty query");
-    // assert_eq!(
-    //     found_doc, doc,
-    //     "retrieved document mismatches inserted document"
-    // );
+    let found_doc = db
+        .test
+        .find_one(TestDocument::query())
+        .await?
+        .expect("expected to retrieve a document using empty query");
+    assert_eq!(
+        found_doc, doc,
+        "retrieved document mismatches inserted document"
+    );
 
     Ok(())
 }

@@ -4,7 +4,7 @@ use std::ops::RangeBounds;
 
 use super::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GeneralRange<T>(pub Bound<T>, pub Bound<T>);
 
 impl GeneralRange<Vec<u8>> {
@@ -68,7 +68,7 @@ impl<T> RangeBounds<T> for GeneralRange<T> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ParamTyped<T: PartialEq + PartialOrd> {
     Eq(T),
     Neq(T),
@@ -118,7 +118,19 @@ impl<T: SerializeLexicographic + PartialEq + PartialOrd> Into<Param> for &ParamT
     }
 }
 
-#[derive(Debug)]
+impl Into<Param> for &ParamTyped<Vec<u8>> {
+    fn into(self) -> Param {
+        match self {
+            ParamTyped::Eq(v) => Param::Eq(v.to_vec()),
+            ParamTyped::Neq(v) => Param::Neq(v.to_vec()),
+            ParamTyped::Range(v) => Param::Range(v.to_owned()),
+            ParamTyped::In(v) => Param::In(v.clone()),
+            ParamTyped::Nin(v) => Param::Nin(v.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Param {
     Eq(Vec<u8>),
     Neq(Vec<u8>),

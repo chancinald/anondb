@@ -1,7 +1,9 @@
+use futures::TryStreamExt;
+
 use super::*;
 
 #[tokio::test]
-async fn should_insert_document() -> Result<()> {
+async fn should_insert_and_retrieve_documents() -> Result<()> {
     #[derive(AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0)]
@@ -9,17 +11,16 @@ async fn should_insert_document() -> Result<()> {
         pub test: Collection<TestDocument, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;
-    let doc = TestDocument::default();
-
     for _ in 0..100 {
         db.test.insert(&TestDocument::default()).await?;
     }
-
-    // let doc = db
-    //     .test
-    //     .find_many(TestDocument::query().id3(99..u128::MAX))?
-    //     .collect::<Vec<_>>();
-    // println!("found {}", doc.len());
+    let doc = db
+        .test
+        .find_many(TestDocument::query().id3(99..u128::MAX))
+        .await?
+        .try_collect::<Vec<_>>()
+        .await?;
+    println!("found {}", doc.len());
 
     Ok(())
 }

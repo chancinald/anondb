@@ -12,6 +12,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let generics = &input.generics;
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let fields = parse_struct_and_fields(&input, "Document")?;
+    let field_count = fields.len();
 
     let phantom_associated_functions = fields.iter().map(|f| {
         let field_name = f.ident.clone().unwrap();
@@ -19,6 +20,16 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         quote! {
             pub fn #field_name () -> ::std::marker::PhantomData<#field_type> {
                 ::std::marker::PhantomData::<#field_type>
+            }
+        }
+    });
+
+    let set_fields = fields.iter().map(|f| {
+        let field_name = f.ident.clone().unwrap();
+        // let field_type = f.ty.clone();
+        quote! {
+            if let Some(param) = self.#field_name.as_ref() {
+                out.push((stringify!(#field_name), param.into()));
             }
         }
     });
@@ -57,7 +68,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
     let expanded = quote! {
 
-        #[derive(Default, Debug)]
+        #[derive(Default, Clone, Debug)]
         #[allow(non_camel_case_types)]
         pub struct #impl_generics #query_struct_name #ty_generics #where_clause {
             #(#query_fields),*
@@ -65,6 +76,15 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         impl #impl_generics #query_struct_name #ty_generics #where_clause {
             #(#query_methods)*
+        }
+
+        impl #crate_name::Query for #impl_generics #query_struct_name #ty_generics #where_clause {
+            /// Get a vector containing the fields that have been set.
+            fn fields(&self) -> Vec<(&'static str, Param)> {
+                let mut out = Vec::with_capacity(#field_count);
+                #(#set_fields)*
+                out
+            }
         }
 
         #[derive(Debug)]

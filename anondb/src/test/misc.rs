@@ -1,3 +1,5 @@
+use futures::TryStreamExt;
+
 use super::*;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Document)]
@@ -66,14 +68,15 @@ async fn should_use_non_unique_index() -> Result<()> {
     db.other_collection.insert(&doc).await?;
     db.other_collection.insert(&doc2).await?;
 
-    // let out = db
-    //     .other_collection
-    //     .find_many(OtherDocument::query().other(0..))
-    //     .await?
-    //     .collect::<Vec<_>>();
-    // assert_eq!(out.len(), 2);
-    // assert_eq!(out.get(0).unwrap().other, 99);
-    // assert_eq!(out.get(1).unwrap().other, 200);
+    let out = db
+        .other_collection
+        .find_many(OtherDocument::query().other(0..))
+        .await?
+        .try_collect::<Vec<_>>()
+        .await?;
+    assert_eq!(out.len(), 2);
+    assert_eq!(out.get(0).unwrap().other, 99);
+    assert_eq!(out.get(1).unwrap().other, 200);
 
     Ok(())
 }
@@ -88,26 +91,31 @@ async fn should_query_collection() -> Result<()> {
     };
     db.test_collection.insert(&doc).await?;
 
-    // {
-    //     let out = db
-    //         .test_collection
-    //         .find_one(TestDocument2::query().id(80..).other(""))?;
-    //     assert!(out.is_some());
-    //     let out = out.unwrap();
-    //     assert_eq!(out, doc);
-    // }
-    // {
-    //     let out = db
-    //         .test_collection
-    //         .find_one(TestDocument2::query().id(1000..))?;
-    //     assert!(out.is_none());
-    // }
-    // {
-    //     let out = db.test_collection.find_one(TestDocument2::query().id(99))?;
-    //     assert!(out.is_some());
-    //     let out = out.unwrap();
-    //     assert_eq!(out, doc);
-    // }
+    {
+        let out = db
+            .test_collection
+            .find_one(TestDocument2::query().id(80..).other(""))
+            .await?;
+        assert!(out.is_some());
+        let out = out.unwrap();
+        assert_eq!(out, doc);
+    }
+    {
+        let out = db
+            .test_collection
+            .find_one(TestDocument2::query().id(1000..))
+            .await?;
+        assert!(out.is_none());
+    }
+    {
+        let out = db
+            .test_collection
+            .find_one(TestDocument2::query().id(99))
+            .await?;
+        assert!(out.is_some());
+        let out = out.unwrap();
+        assert_eq!(out, doc);
+    }
 
     Ok(())
 }

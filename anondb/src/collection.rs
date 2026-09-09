@@ -1,4 +1,5 @@
 use anyhow::Result;
+use futures::StreamExt;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -88,61 +89,41 @@ where
         Ok(())
     }
 
-    // pub async fn find_many(
-    //     &self,
-    //     query: T::DocumentQuery,
-    // ) -> Result<impl Iterator<Item = T> + DoubleEndedIterator> {
-    //     let index_fields = self.extract_index_fields(&query);
-    //
-    //     let mut scores = BTreeMap::default();
-    //     let primary_index_score = self
-    //         .primary_key_index()
-    //         .query_compat(&query, &index_fields)?;
-    //     scores.insert(primary_index_score, self.primary_key_index());
-    //
-    //     for index in self.indices() {
-    //         let score = index.query_compat(&query, &index_fields)?;
-    //         scores.insert(score, index.clone());
-    //     }
-    //     let (score, best_index) = scores
-    //         .last_key_value()
-    //         .map(|(k, v)| (*k, v.clone()))
-    //         .ok_or(anyhow::anyhow!("no index found"))?;
-    //     println!(
-    //         "using index \"{}\" score: {}",
-    //         best_index.table_name(),
-    //         score
-    //     );
-    //     let tx = self.kv().read_tx().await?;
-    //     Ok(best_index
-    //         .query(&tx, &query, &index_fields)?
-    //         .collect::<Vec<_>>()
-    //         .into_iter())
-    // }
-    //
-    // pub async fn find_one(&self, query: T::DocumentQuery) -> Result<Option<T>> {
-    //     let index_fields = self.extract_index_fields(&query);
-    //
-    //     let mut scores = BTreeMap::default();
-    //     let primary_index_score = self
-    //         .primary_key_index()
-    //         .query_compat(&query, &index_fields)?;
-    //     scores.insert(primary_index_score, self.primary_key_index().clone());
-    //     for index in self.indices() {
-    //         let score = index.query_compat(&query, &index_fields)?;
-    //         scores.insert(score, index.clone());
-    //     }
-    //     if let Some((score, best_index)) = scores.last_key_value() {
-    //         println!(
-    //             "using index \"{}\" score: {}",
-    //             best_index.table_name(),
-    //             score
-    //         );
-    //         let tx = self.kv().read_tx().await?;
-    //         let mut out = best_index.query(&tx, &query, &index_fields)?;
-    //         Ok(out.next())
-    //     } else {
-    //         unreachable!("no index found!");
-    //     }
-    // }
+    /// Select the index which matches a query best.
+    fn select_index(&self, query_fields: &Vec<(&str, Param)>) -> Result<&Index<T>> {
+        let (mut compat, mut out_index): (IndexQueryCompatibility, &Index<T>);
+        compat = IndexQueryCompatibility::new(&self.primary_key_index, query_fields)?;
+        out_index = &self.primary_key_index;
+
+        for index in self.indices.iter() {
+            if compat == IndexQueryCompatibility::CompleteUnique {
+                return Ok(out_index);
+            }
+            let index_compat = IndexQueryCompatibility::new(out_index, query_fields)?;
+            if index_compat > compat {
+                compat = index_compat;
+                out_index = index;
+            }
+        }
+        Ok(out_index)
+    }
+
+    pub async fn find_many(
+        &self,
+        query: T::DocumentQuery,
+    ) -> Result<impl futures::Stream<Item = Result<T>>> {
+        let fields = query.fields();
+        let index = self.select_index(&fields)?;
+        let tx = self.kv().read_tx().await?;
+        index.query(tx, query, fields).await
+    }
+
+    pub async fn find_one(&self, query: T::DocumentQuery) -> Result<Option<T>> {
+        let fields = query.fields();
+        let index = self.select_index(&fields)?;
+        let tx = self.kv().read_tx().await?;
+        let out = index.query(tx, query, fields).await?;
+        futures::pin_mut!(out);
+        out.next().await.transpose()
+    }
 }

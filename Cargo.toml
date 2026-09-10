@@ -7,9 +7,9 @@ anyhow = "1"
 serde = "1"
 log = "0"
 
-anondb = "0"
-anondb-macros = "0"
-anondb-kv = "0"
+anondb = "0.2"
+anondb-macros = "0.2"
+anondb-kv = "0.2"
 domacro = "0"
 
 rand = "0"

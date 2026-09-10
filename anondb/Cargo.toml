@@ -8,6 +8,10 @@ description = "Database abstraction over a generic KV"
 
 [lib]
 
+[features]
+default = ["redb"]
+redb = ["anondb-kv/redb"]
+
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
 log = { workspace = true }

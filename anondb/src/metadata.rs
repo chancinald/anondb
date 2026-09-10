@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 use anyhow::Result;
@@ -9,13 +10,16 @@ use super::*;
 
 #[derive(Serialize, Deserialize, PartialEq)]
 pub struct IndexDescription {
+    /// The name of the collection in the database
     pub collection_name: String,
-    pub field_names: Vec<String>,
+    /// The names of the fields in the index
+    pub field_names: BTreeSet<String>,
     pub options: IndexOptions,
-    /// Name of the table in the kv used for this collection
+    /// Name of the table in the kv used for this index
     pub table_name: String,
 }
 
+/// A type for dynamic reflection of collections.
 #[derive(Serialize, Deserialize, PartialEq)]
 pub struct CollectionDescription {
     pub fields: BTreeMap<String, String>,
@@ -27,9 +31,11 @@ pub struct CollectionDescription {
 /// schema changes.
 #[derive(Serialize, Deserialize)]
 pub struct MetadataDocument {
-    pub version: u64,        // version of the metadata document itself
-    pub schema_version: u64, // version of the database schema, this gets incremented when the
-    // schema changes
+    /// version of the metadata document itself
+    pub version: u64,
+    /// version of the database schema, this gets incremented when the
+    /// schema changes
+    pub schema_version: u64,
     pub indices_by_collection: HashMap<String, IndexDescription>,
     pub collections: HashMap<String, CollectionDescription>,
 }
@@ -40,7 +46,7 @@ impl MetadataDocument {
     pub fn compare(&self, other: &Self) -> Result<()> {
         if self.version != other.version {
             anyhow::bail!(
-                "Metadata version mimatch. This implementation of AnonDB does not support metadata version migration."
+                "Metadata version mismatch. This implementation of AnonDB does not support metadata version migration."
             );
         }
         if self.indices_by_collection == other.indices_by_collection

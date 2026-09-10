@@ -8,9 +8,9 @@ This crate targets Rust Edition 2024 with MSRV 1.85.
 
 ### Database
 
-Each `database` contains collections of `documents`. Each `document` is `Serialize + Deserialize`. Each collection may specify `indices`. Each `index` specifies 1 or more field names from the `document`. Each `field` in an `index` must by a type that implements `SerializeLexicographic` (implementations are provided for most types).
+Each `database` contains `collections` of `documents`. Each `document` is `Serialize + Deserialize`. Each collection may specify `indices`. Each `index` specifies 1 or more field names from the `document`. Each `field` in an `index` must by a type that implements `SerializeLexicographic` (implementations are provided for most types).
 
-Each `database` is generic over a trait `KV`, which abstracts a key-value store. The current implementation uses redb, with support for fjall being considered.
+Each `database` is generic over a trait `KV`, which abstracts a key-value store. Each kv has `tables` containing keys and values.
 
 ### Schema
 

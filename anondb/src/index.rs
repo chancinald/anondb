@@ -21,7 +21,7 @@ pub struct Index<T>
 where
     T: Serialize + for<'de> Deserialize<'de> + Queryable,
 {
-    /// The name of the collection the index belongs to.
+    /// The name of the database collection the index belongs to.
     collection_name: String,
     /// The field names of the document type along with the byte length (if constant)
     field_names: Vec<(String, LexStats)>,

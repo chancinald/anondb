@@ -8,9 +8,6 @@ async fn compound_primary_key() -> Result<()> {
         pub test: Collection<TestDocument, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;
-    // let q = TestDocument::query()
-    //     .id0(ParamTyped::Eq(0))
-    //     .id1(ParamTyped::Eq(1));
 
     let mut doc0 = TestDocument::default();
 

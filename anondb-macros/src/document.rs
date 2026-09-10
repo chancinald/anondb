@@ -14,6 +14,16 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let fields = parse_struct_and_fields(&input, "Document")?;
     let field_count = fields.len();
 
+    let field_constraints = fields.iter().map(|f| {
+        let field_type = f.ty.clone();
+        quote! {
+            const _: fn() = || {
+                fn assert_valid_type<T: #crate_name::ValidDBType>() {}
+                assert_valid_type::<#field_type>();
+            };
+        }
+    });
+
     let phantom_associated_functions = fields.iter().map(|f| {
         let field_name = f.ident.clone().unwrap();
         let field_type = f.ty.clone();
@@ -86,6 +96,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 out
             }
         }
+
+        #(#field_constraints)*
 
         #[derive(Debug)]
         #[allow(non_camel_case_types)]

@@ -6,15 +6,15 @@ mod sealed {
 pub trait ValidDBType: sealed::Sealed {
     /// Return a dynamic identifier for the type which
     /// is used for storing and comparing schema information
-    fn type_name() -> String;
+    fn type_name() -> &'static str;
 }
 
 macro_rules! impl_native {
     ($($t:ty),*) => { $(
         impl sealed::Sealed for $t {}
         impl ValidDBType for $t {
-            fn type_name() -> String {
-                stringify!($t).into()
+            fn type_name() -> &'static str {
+                stringify!($t)
             }
         }
     )* };
@@ -25,20 +25,29 @@ impl_native!(
 
 impl<T: ValidDBType> sealed::Sealed for Option<T> {}
 impl<T: ValidDBType> ValidDBType for Option<T> {
-    fn type_name() -> String {
-        format!("Option<{}>", T::type_name())
+    fn type_name() -> &'static str {
+        use std::sync::OnceLock;
+        static NAME: OnceLock<String> = OnceLock::new();
+        NAME.get_or_init(|| format!("Option<{}>", T::type_name()))
+            .as_str()
     }
 }
 impl<T: ValidDBType> sealed::Sealed for Vec<T> {}
 impl<T: ValidDBType> ValidDBType for Vec<T> {
-    fn type_name() -> String {
-        format!("Vec<{}>", T::type_name())
+    fn type_name() -> &'static str {
+        use std::sync::OnceLock;
+        static NAME: OnceLock<String> = OnceLock::new();
+        NAME.get_or_init(|| format!("Vec<{}>", T::type_name()))
+            .as_str()
     }
 }
 
 impl<T: ValidDBType, const N: usize> sealed::Sealed for [T; N] {}
 impl<T: ValidDBType, const N: usize> ValidDBType for [T; N] {
-    fn type_name() -> String {
-        format!("[{}; {}]", T::type_name(), N)
+    fn type_name() -> &'static str {
+        use std::sync::OnceLock;
+        static NAME: OnceLock<String> = OnceLock::new();
+        NAME.get_or_init(|| format!("[{}; {}]", T::type_name(), N))
+            .as_str()
     }
 }

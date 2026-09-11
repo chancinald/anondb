@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 
@@ -8,7 +7,7 @@ use serde::Serialize;
 
 use super::*;
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IndexDescription {
     /// The name of the collection in the database
     pub collection_name: String,
@@ -20,9 +19,12 @@ pub struct IndexDescription {
 }
 
 /// A type for dynamic reflection of collections.
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct CollectionDescription {
-    pub fields: BTreeMap<String, String>,
+    /// Currently stored version of the documents in the collection.
+    pub version: u32,
+    /// field name along with type description string
+    pub fields: Vec<(String, String)>,
 }
 
 /// Represents metadata about an AnonDB instance. Tracks changes to collection document shapes and indices.
@@ -33,9 +35,6 @@ pub struct CollectionDescription {
 pub struct MetadataDocument {
     /// version of the metadata document itself
     pub version: u64,
-    /// version of the database schema, this gets incremented when the
-    /// schema changes
-    pub schema_version: u64,
     pub indices_by_collection: HashMap<String, IndexDescription>,
     pub collections: HashMap<String, CollectionDescription>,
 }

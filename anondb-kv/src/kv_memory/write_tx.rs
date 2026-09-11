@@ -87,6 +87,16 @@ impl WriteOperations for MemoryKVWriteTransaction {
             }
         }
     }
+
+    async fn rename_table(&self, table: &str, new_name: &str) -> Result<()> {
+        let mut tables = self.tables_snapshot.lock().await;
+        if let Some(table_data) = tables.remove(table) {
+            tables.insert(new_name.into(), table_data);
+            Ok(())
+        } else {
+            anyhow::bail!("table \"{table}\" not found");
+        }
+    }
 }
 
 impl WriteTx for MemoryKVWriteTransaction {

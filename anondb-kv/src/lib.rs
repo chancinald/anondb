@@ -61,6 +61,8 @@ pub trait WriteOperations {
 
     /// Remove all entries in a table.
     fn clear(&self, table: &str) -> impl Future<Output = Result<()>>;
+
+    fn rename_table(&self, table: &str, new_name: &str) -> impl Future<Output = Result<()>>;
 }
 
 pub trait RangeReadOperation {

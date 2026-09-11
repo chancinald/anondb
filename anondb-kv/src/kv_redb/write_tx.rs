@@ -29,6 +29,13 @@ impl<'a> WriteOperations for RedbWriteTransaction<'a> {
         self.write.delete_table(tabledef(table))?;
         Ok(())
     }
+
+    async fn rename_table(&self, table: &str, new_name: &str) -> Result<()> {
+        self.write.delete_table(tabledef(new_name))?;
+        self.write
+            .rename_table(tabledef(table), tabledef(new_name))?;
+        Ok(())
+    }
 }
 
 impl<'a> ReadOperations for RedbWriteTransaction<'a> {

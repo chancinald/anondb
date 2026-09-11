@@ -69,6 +69,18 @@ where
         &self.field_names
     }
 
+    pub fn is_primary(&self) -> bool {
+        self.options.primary
+    }
+
+    pub(crate) async fn clear<'a>(
+        &'a self,
+        tx: &'a (impl ReadOperations + WriteOperations),
+    ) -> Result<()> {
+        tx.clear(&self.kv_table_name).await?;
+        Ok(())
+    }
+
     /// TODO: allow variable length serialization only as the final element in an index
     /// Accept a set of field keys as lexicographically serialized bytes
     pub async fn query<'a>(
@@ -203,7 +215,7 @@ where
             tx.insert(
                 &self.kv_table_name,
                 key.as_slice(),
-                &rmp_serde::to_vec_named(doc)?,
+                &rmp_serde::to_vec(doc)?,
             )
             .await?;
         } else if self.options.unique {

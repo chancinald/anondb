@@ -14,6 +14,53 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let fields = parse_struct_and_fields(&input, "Document")?;
     let field_count = fields.len();
 
+    let mut migrations_fn_maybe = None;
+    for attr in input.attrs.iter() {
+        if !attr.path().is_ident("document") {
+            continue;
+        }
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("migrations") {
+                if migrations_fn_maybe.is_some() {
+                    panic!("duplicate document migrations definition!");
+                }
+                let fn_name = meta.value()?.parse::<syn::Path>()?;
+                migrations_fn_maybe = Some(quote! {
+                    fn migrations() -> &'static [fn(
+                        Vec<(String, rmpv::Value)>,
+                    ) -> Result<Vec<(String, rmpv::Value)>, MigrationError>] {
+                        #fn_name ()
+                    }
+                });
+            }
+            Ok(())
+        })?;
+    }
+
+    let from_tuple = fields.iter().map(|f| {
+        let field_name = f.ident.clone().unwrap();
+        // let field_type = f.ty.clone();
+        quote! {
+            #field_name : tuple.iter().find_map(|(name, val)| {
+                if name == stringify!(#field_name) {
+                    let mut bytes = Vec::default();
+                    #crate_name::rmpv::encode::write_value(&mut bytes, val).unwrap();
+                    Some(#crate_name::rmp_serde::from_slice(bytes.as_slice()).unwrap())
+                } else {
+                    None
+                }
+            }).expect("did not find value"),
+        }
+    });
+
+    let field_types = fields.iter().map(|f| {
+        let field_name = f.ident.clone().unwrap();
+        let field_type = f.ty.clone();
+        quote! {
+            (stringify!(#field_name).to_string(), <#field_type as ValidDBType>::type_name().to_string()),
+        }
+    });
+
     let field_constraints = fields.iter().map(|f| {
         let field_type = f.ty.clone();
         quote! {
@@ -115,6 +162,29 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 #(#match_entries)*
                 true
             }
+        }
+
+        impl #impl_generics #crate_name::AnyDocument for #name #ty_generics #where_clause {
+            fn field_types() -> &'static Vec<(String, String)> {
+                use ::std::sync::OnceLock;
+                static FIELDS: OnceLock<Vec<(String, String)>> = OnceLock::new();
+                FIELDS.get_or_init(|| {
+                    [
+                        #(#field_types)*
+                    ].to_vec()
+                }).as_ref()
+            }
+
+            fn from_tuple(tuple: Vec<(String, rmpv::Value)>) -> Self {
+                assert_eq!(tuple.len(), Self::field_types().len(), "document bad tuple length");
+                Self {
+                    #(#from_tuple)*
+                }
+            }
+        }
+
+        impl #impl_generics #crate_name::Migrateable for #name #ty_generics #where_clause {
+            #migrations_fn_maybe
         }
     };
 

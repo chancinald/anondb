@@ -8,6 +8,7 @@ use write_tx::*;
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -28,7 +29,14 @@ fn tabledef(name: &str) -> TableDefinition<'_, &'static [u8], &'static [u8]> {
 #[derive(Debug, Clone)]
 pub struct RedbKV<'a> {
     db: Arc<Database>,
+    path: PathBuf,
     _phantom: PhantomData<&'a ()>,
+}
+
+impl<'a> RedbKV<'a> {
+    pub fn db_path(&self) -> &std::path::Path {
+        &self.path
+    }
 }
 
 impl<'a> KV for RedbKV<'a> {
@@ -55,6 +63,7 @@ impl<'a> KV for RedbKV<'a> {
             } else {
                 Database::create(path.as_path())?
             }),
+            path: path.to_path_buf(),
             _phantom: PhantomData::default(),
         })
     }
@@ -108,6 +117,13 @@ impl<'a> WriteOperations for RedbKV<'a> {
     async fn remove(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let tx = self.write_tx().await?;
         let out = tx.remove(table, key).await?;
+        tx.commit().await?;
+        Ok(out)
+    }
+
+    async fn rename_table(&self, table: &str, new_name: &str) -> Result<()> {
+        let tx = self.write_tx().await?;
+        let out = tx.rename_table(table, new_name).await?;
         tx.commit().await?;
         Ok(out)
     }

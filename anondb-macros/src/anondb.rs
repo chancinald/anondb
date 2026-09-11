@@ -75,7 +75,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 vec![
                     #(#indices)*
                 ]
-            ),
+            ).await?,
         }
     });
 

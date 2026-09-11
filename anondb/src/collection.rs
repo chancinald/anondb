@@ -8,7 +8,7 @@ use super::*;
 #[derive(Debug, Clone)]
 pub struct Collection<T, K: KV>
 where
-    T: 'static + Serialize + for<'de> Deserialize<'de> + Queryable,
+    T: 'static + Serialize + for<'de> Deserialize<'de> + Queryable + AnyDocument + Migrateable,
 {
     kv: K,
     name: String,
@@ -18,15 +18,102 @@ where
 
 impl<T, K: KV> Collection<T, K>
 where
-    T: 'static + Serialize + for<'de> Deserialize<'de> + Queryable,
+    T: 'static + Serialize + for<'de> Deserialize<'de> + Queryable + AnyDocument + Migrateable,
 {
-    pub fn new(kv: K, name: String, primary_key_index: Index<T>, indices: Vec<Index<T>>) -> Self {
-        Self {
+    pub async fn new(
+        kv: K,
+        name: String,
+        primary_key_index: Index<T>,
+        indices: Vec<Index<T>>,
+    ) -> Result<Self> {
+        let tx = kv.write_tx().await?;
+        let meta_table = format!("__metadata_{name}");
+        let description_key = "description".as_bytes();
+        // version is determined by number of migrations defined
+        // this is the version of our implementation
+        let doc_version = T::migrations().len() as u32;
+        if let Some(item) = kv.get(&meta_table, description_key).await? {
+            // description of the database data
+            let description: CollectionDescription = rmp_serde::from_slice(&item.value().await)?;
+            // run migrations as needed
+            assert!(
+                description.version <= doc_version,
+                "attempting to open database file from newer version of schema!"
+            );
+            if description.version < doc_version {
+                // run migration
+                log::info!(
+                    "collection \"{name}\" current version {}, impl version {doc_version}, running migration...",
+                    description.version
+                );
+                let read_tx = kv.read_tx().await?;
+                let migration_table = format!("__migration_{name}");
+                // drop any in progress migration table if it exists
+                tx.rename_table(&name, &migration_table).await?;
+                assert_eq!(tx.count(&name).await?, 0);
+                for v in read_tx.range(&migration_table, ..).await? {
+                    let item = v?;
+                    let mut bytes = item.value().await;
+                    let values = rmpv::decode::read_value(&mut bytes)?
+                        .as_array()
+                        .ok_or(anyhow::anyhow!("data was not an array"))?
+                        .clone();
+                    assert_eq!(values.len(), description.fields.len());
+                    let mut data = description
+                        .fields
+                        .iter()
+                        .zip(values.into_iter())
+                        .map(|((name, _), val)| Ok((name.clone(), val)))
+                        .collect::<Result<Vec<_>>>()?;
+                    for i in description.version..doc_version {
+                        data = T::migrations()[i as usize](data)?;
+                    }
+                    let new_doc = T::from_tuple(data);
+                    primary_key_index.insert(&tx, &new_doc, &[]).await?;
+                }
+                for index in &indices {
+                    assert!(!index.is_primary(), "refusing to clear primary index");
+                    // drop the indices and rebuild
+                    index.clear(&tx).await?;
+                }
+                // remove the previous table of values
+                tx.clear(&migration_table).await?;
+                // update the metadata document
+                tx.insert(
+                    &meta_table,
+                    "description".as_bytes(),
+                    &rmp_serde::to_vec(&CollectionDescription {
+                        version: doc_version,
+                        fields: T::field_types().clone(),
+                    })?,
+                )
+                .await?;
+                log::info!("collection \"{name}\" migration complete!");
+            } else if T::field_types() != &description.fields {
+                anyhow::bail!("collection \"{name}\" has incorrect fields!")
+            }
+        } else {
+            log::info!("initializing collection: {name}");
+            // persist the names and types of fields
+            let description = CollectionDescription {
+                version: doc_version,
+                fields: T::field_types().clone(),
+            };
+            tx.insert(
+                &meta_table,
+                description_key,
+                &rmp_serde::to_vec(&description)?,
+            )
+            .await?;
+        }
+        // commit the transaction
+        tx.commit().await?;
+        Ok(Self {
             kv,
             name,
             primary_key_index,
             indices,
-        }
+        })
     }
 
     pub fn primary_key_index(&self) -> &Index<T> {

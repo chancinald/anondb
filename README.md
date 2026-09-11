@@ -2,9 +2,8 @@
 
 An embedded document oriented NoSQL database implemented over a generic KV trait.
 
-### MSRV
-
-This crate targets Rust Edition 2024 with MSRV 1.85.
+- Invalid configurations should cause compile errors
+- Invalid schema changes should fail immediately on startup
 
 ### Database
 
@@ -119,3 +118,6 @@ db.users.insert(&bob_user)?;
 
 Each struct that derives `Document` has an associated function to build a query. This query has methods to set constraints for the query.
 
+### MSRV
+
+This crate targets Rust Edition 2024 with MSRV 1.85.

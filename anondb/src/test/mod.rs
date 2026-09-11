@@ -1,4 +1,5 @@
 mod insert;
+mod migrations;
 mod misc;
 mod primary_key;
 mod range;

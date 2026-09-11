@@ -4,6 +4,7 @@ mod misc;
 mod primary_key;
 mod range;
 mod unique_index;
+mod update;
 
 use anyhow::Result;
 use serde::Deserialize;

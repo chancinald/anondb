@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
@@ -116,14 +118,26 @@ where
         })
     }
 
+    pub(crate) async fn delete(&self, tx: &impl WriteTx, doc: impl Borrow<T>) -> Result<()> {
+        let key = (self.serialize_key)(doc.borrow());
+        if self.options.unique {
+            let removed_maybe = tx.remove(&self.kv_table_name, key.as_slice()).await?;
+            debug_assert!(removed_maybe.is_some(), "index is inconsistent");
+        } else {
+            unimplemented!()
+            // tx.insert_multimap(&table_name, key.as_slice(), primary_key)?;
+        }
+        Ok(())
+    }
+
     /// Take a document and a primary key and insert into a collection.
     pub(crate) async fn insert(
         &self,
         tx: &impl WriteTx,
-        doc: &T,
+        doc: impl Borrow<T>,
         primary_key: &[u8],
     ) -> Result<()> {
-        let key = (self.serialize_key)(doc);
+        let key = (self.serialize_key)(doc.borrow());
         if self.options.unique {
             if tx.get(&self.kv_table_name, key.as_slice()).await?.is_some() {
                 anyhow::bail!(

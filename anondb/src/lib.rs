@@ -34,7 +34,7 @@ pub use rmp_serde;
 pub use rmpv;
 
 /// A trait representing a document which may be queried.
-pub trait Queryable {
+pub trait Queryable: Clone {
     type DocumentQuery: Default + Clone + Query + 'static;
     /// Used to access the types of fields by name. Accessors generated in
     /// anondb-macros/src/document.rs

@@ -5,7 +5,7 @@ use serde::Serialize;
 
 use crate::*;
 
-#[derive(Serialize, Deserialize, PartialEq, Document)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Document)]
 pub struct TestDocumentV0 {
     pub id0: u128,
     pub id1: u128,

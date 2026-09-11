@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use anyhow::Result;
 use futures::StreamExt;
 use futures::future::Either;
@@ -116,7 +118,10 @@ where
                     data = T::migrations()[i as usize](data)?;
                 }
                 let new_doc = T::from_tuple(data);
-                self.insert_with_tx(&new_doc, &write_tx).await?;
+                // TODO: perhaps don't fail if indices conflict in production
+                // fall back to non-accelerated queries to prevent application crashes
+                // always fail fast during development
+                self.insert_with_tx(new_doc, &write_tx).await?;
             }
             // update the metadata document
             write_tx
@@ -151,56 +156,77 @@ where
 
     /// Return the number of documents in the collection.
     pub async fn count(&self) -> Result<u64> {
-        self.kv().count(self.name()).await
+        self.kv().count(&self.name).await
     }
 
-    pub async fn insert_with_tx(&self, document: &T, tx: &impl WriteTx) -> Result<()> {
-        let primary_key = (self.serialize_primary_key)(document);
+    pub(crate) async fn insert_with_tx(
+        &self,
+        document: impl Borrow<T>,
+        tx: &impl WriteTx,
+    ) -> Result<()> {
+        let primary_key = (self.serialize_primary_key)(document.borrow());
         if tx.get(&self.name, &primary_key).await?.is_some() {
             anyhow::bail!(
                 "Collection \"{}\" cannot insert document, primary key uniqueness constraint violated",
                 self.name,
             );
         }
-        tx.insert(&self.name, &primary_key, &rmp_serde::to_vec(document)?)
-            .await?;
+        tx.insert(
+            &self.name,
+            &primary_key,
+            &rmp_serde::to_vec(document.borrow())?,
+        )
+        .await?;
         for index in &self.indices {
-            index.insert(tx, document, &primary_key).await?;
+            index.insert(tx, document.borrow(), &primary_key).await?;
         }
         Ok(())
     }
 
+    /// Batch insert many documents into a collection in a single
+    /// atomic transaction.
+    pub async fn insert_many<B>(&self, document_iter: impl Iterator<Item = B>) -> Result<()>
+    where
+        B: Borrow<T>,
+    {
+        let tx = self.kv().write_tx().await?;
+        for item in document_iter {
+            self.insert_with_tx(item.borrow(), &tx).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Insert a document into a collection. All relevant indices will be updated.
-    pub async fn insert(&self, document: &T) -> Result<()> {
+    pub async fn insert(&self, document: impl Borrow<T>) -> Result<()> {
         let tx = self.kv().write_tx().await?;
         self.insert_with_tx(document, &tx).await?;
         tx.commit().await?;
         Ok(())
     }
 
-    /// Clear all indices for this collection and completely rebuild them. This operation is `O(N)`
-    /// over the number of documents in the collection.
-    pub async fn rebuild_indices(&self) -> Result<()> {
-        // first empty all index collections
-        // let tx = self.kv().write_tx().await?;
-        // for index in &self.indices {
-        //     tx.clear(&index.table_name()).await?;
-        // }
-        // tx.commit().await?;
-
-        // then iterate over all documents and construct indices
-        // self.kv().scan(self.name(), |primary_key, val| {
-        //     let data = rmp_serde::from_slice(val)?;
-        //     for index in &self.indices {
-        //         let key = (index.serialize)(&data);
-        //         // we insert the document primary key as the value and the indexed bytes as the
-        //         // key to get lexicographic iteration
-        //         self.kv()
-        //             .insert(&index.table_name(), key.as_slice(), primary_key)
-        //             .await?;
-        //     }
-        //     return Ok(true);
-        // })?;
+    /// Given a query, repeatedly call a closure with documents matching the
+    /// query. If the closure returns `Some()` the original document is replaced
+    /// and all indices are updated. If the closure returns `None`, no operation occurs.
+    pub async fn update(
+        &self,
+        query: T::DocumentQuery,
+        update_fn: impl Fn(&T) -> Option<T>,
+    ) -> Result<()> {
+        let write_tx = self.kv.write_tx().await?;
+        let out = self.find_many(query).await?;
+        futures::pin_mut!(out);
+        while let Some(doc) = out.next().await.transpose()? {
+            if let Some(updated) = update_fn(&doc) {
+                let primary_key = (self.serialize_primary_key)(&doc);
+                write_tx.remove(&self.name, &primary_key).await?;
+                for index in self.indices.iter() {
+                    index.delete(&write_tx, &doc).await?;
+                }
+                self.insert_with_tx(&updated, &write_tx).await?;
+            }
+        }
+        write_tx.commit().await?;
         Ok(())
     }
 
@@ -248,7 +274,7 @@ where
         out.next().await.transpose()
     }
 
-    pub async fn query_primary_key<'a>(
+    pub(crate) async fn query_primary_key<'a>(
         &'a self,
         tx: impl ReadOperations + RangeReadOperation + 'a,
         query: <T as Queryable>::DocumentQuery,

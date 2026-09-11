@@ -2,13 +2,13 @@ use futures::TryStreamExt;
 
 use super::*;
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Document)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
 pub struct TestDocument2 {
     pub id: u128,
     pub other: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Document)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
 pub struct OtherDocument {
     pub id: u128,
     pub other: u64,

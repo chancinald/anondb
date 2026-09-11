@@ -42,7 +42,7 @@ impl IndexDef {
             .collect::<Vec<_>>();
         if self.index_type == IndexType::Primary {
             options.push(quote! {
-                primary: true,
+                unique: true,
             });
         }
 

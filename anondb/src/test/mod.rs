@@ -11,6 +11,14 @@ use serde::Serialize;
 
 use crate::*;
 
+#[cfg(test)]
+pub fn rand_utf8(len: usize) -> String {
+    vec![char::default(); len]
+        .into_iter()
+        .map(|_| rand::random::<char>())
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
 pub struct TestDocument {
     pub id0: u128,

@@ -1,6 +1,4 @@
 use anyhow::Result;
-use serde::Deserialize;
-use serde::Serialize;
 
 use super::*;
 
@@ -17,16 +15,16 @@ pub enum IndexQueryCompatibility {
 impl IndexQueryCompatibility {
     /// Determine how compatible this index is with a given query. A higher score indicates a
     /// faster query. An index that matches exactly returns a high score.
-    pub fn new<T>(index: &Index<T>, index_params: &Vec<(&str, Param)>) -> Result<Self>
-    where
-        T: Serialize + for<'de> Deserialize<'de> + Queryable,
-    {
+    pub fn new(
+        field_names: &Vec<(String, LexStats)>,
+        index_params: &Vec<(&str, Param)>,
+    ) -> Result<Self> {
         let mut is_full_prefix = true; // are we able to utilize all of the fields in this index?
         let mut is_range_match = false;
         // let mut matched_any = false;
-        for (i, (name, lex_stats)) in index.field_names().iter().enumerate() {
+        for (i, (name, lex_stats)) in field_names.iter().enumerate() {
             // is this the final field in the index?
-            let is_last_field = i == index.field_names().len() - 1;
+            let is_last_field = i == field_names.len() - 1;
             let Some((_, query_param)) = index_params.iter().find(|(pname, _)| pname == name)
             else {
                 is_full_prefix = false;

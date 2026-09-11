@@ -5,6 +5,7 @@ mod lexicographic;
 pub(crate) mod log;
 mod metadata;
 mod query;
+mod query_params;
 mod types;
 
 use std::fmt::Display;
@@ -15,19 +16,52 @@ pub use index_compat::*;
 pub use lexicographic::*;
 use metadata::*;
 pub use query::*;
+pub use query_params::*;
 pub use types::*;
 
 #[cfg(test)]
 mod test;
+#[cfg(test)]
+use test::*;
 
 use anondb_kv;
 
-pub use anondb_kv::*;
+pub(crate) use anondb_kv::*;
 pub use anondb_macros::AnonDB;
 pub use anondb_macros::Document;
 
 pub use rmp_serde;
 pub use rmpv;
+
+/// A trait representing a document which may be queried.
+pub trait Queryable {
+    type DocumentQuery: Default + Clone + Query + 'static;
+    /// Used to access the types of fields by name. Accessors generated in
+    /// anondb-macros/src/document.rs
+    type DocumentPhantom;
+
+    fn query() -> Self::DocumentQuery {
+        Self::DocumentQuery::default()
+    }
+
+    /// Test if a document matches a query
+    fn matches(&self, query: &Self::DocumentQuery) -> bool;
+}
+
+/// Trait for reflecting document types.
+pub trait AnyDocument {
+    /// Get an ordered list of document field names, with corresponding types.
+    fn field_types() -> &'static Vec<(String, String)>;
+    fn from_tuple(tuple: Vec<(String, rmpv::Value)>) -> Self;
+}
+
+pub trait Migrateable {
+    fn migrations() -> &'static [fn(
+        Vec<(String, rmpv::Value)>,
+    ) -> Result<Vec<(String, rmpv::Value)>, MigrationError>] {
+        &[]
+    }
+}
 
 /// A trait for handling changes to a database schema.
 #[derive(Debug)]
@@ -61,47 +95,4 @@ impl std::error::Error for MigrationError {
     fn description(&self) -> &str {
         unimplemented!()
     }
-}
-
-pub trait Migrateable {
-    fn migrations() -> &'static [fn(
-        Vec<(String, rmpv::Value)>,
-    ) -> Result<Vec<(String, rmpv::Value)>, MigrationError>] {
-        &[]
-    }
-}
-
-pub trait Query {
-    /// Get the fields that are set in this query.
-    fn fields(&self) -> Vec<(&'static str, Param)>;
-}
-
-/// A trait representing a document which may be queried.
-pub trait Queryable {
-    type DocumentQuery: Default + Clone + Query + 'static;
-    /// Used to access the types of fields by name. Accessors generated in
-    /// anondb-macros/src/document.rs
-    type DocumentPhantom;
-
-    fn query() -> Self::DocumentQuery {
-        Self::DocumentQuery::default()
-    }
-
-    /// Test if a document matches a query
-    fn matches(&self, query: &Self::DocumentQuery) -> bool;
-}
-
-/// Trait for reflecting document types.
-pub trait AnyDocument {
-    /// Get an ordered list of document field names, with corresponding types.
-    fn field_types() -> &'static Vec<(String, String)>;
-    fn from_tuple(tuple: Vec<(String, rmpv::Value)>) -> Self;
-}
-
-#[cfg(test)]
-pub fn rand_utf8(len: usize) -> String {
-    vec![char::default(); len]
-        .into_iter()
-        .map(|_| rand::random::<char>())
-        .collect()
 }

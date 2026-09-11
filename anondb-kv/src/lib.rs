@@ -11,6 +11,8 @@ pub use kv_memory::*;
 #[cfg(feature = "redb")]
 pub use kv_redb::*;
 
+pub(crate) use log_ext as log;
+
 use anyhow::Result;
 
 /// A standard interface for accessing entries in a KV.

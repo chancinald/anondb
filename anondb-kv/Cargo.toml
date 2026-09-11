@@ -14,7 +14,7 @@ redb = ["dep:redb"]
 
 [dependencies]
 anyhow = { workspace = true }
-log = { workspace = true }
+log_ext = { workspace = true }
 rand = { workspace = true }
 
 either = "1"

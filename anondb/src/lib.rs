@@ -2,6 +2,7 @@ mod collection;
 mod index;
 mod index_compat;
 mod lexicographic;
+pub(crate) mod log;
 mod metadata;
 mod query;
 mod types;

@@ -5,7 +5,7 @@ members = ["anondb", "anondb-kv", "anondb-macros", "domacro"]
 [workspace.dependencies]
 anyhow = "1"
 serde = "1"
-log = "0"
+log_ext = { package = "log", version = "0" }
 
 anondb = "0.2"
 anondb-macros = "0.2"

@@ -121,7 +121,7 @@ where
                 // TODO: perhaps don't fail if indices conflict in production
                 // fall back to non-accelerated queries to prevent application crashes
                 // always fail fast during development
-                self.insert_with_tx(new_doc, &write_tx).await?;
+                self.insert_with_tx(&write_tx, new_doc).await?;
             }
             // update the metadata document
             write_tx
@@ -161,8 +161,8 @@ where
 
     pub(crate) async fn insert_with_tx(
         &self,
-        document: impl Borrow<T>,
         tx: &impl WriteTx,
+        document: impl Borrow<T>,
     ) -> Result<()> {
         let primary_key = (self.serialize_primary_key)(document.borrow());
         if tx.get(&self.name, &primary_key).await?.is_some() {
@@ -191,7 +191,7 @@ where
     {
         let tx = self.kv().write_tx().await?;
         for item in document_iter {
-            self.insert_with_tx(item.borrow(), &tx).await?;
+            self.insert_with_tx(&tx, item).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -200,7 +200,7 @@ where
     /// Insert a document into a collection. All relevant indices will be updated.
     pub async fn insert(&self, document: impl Borrow<T>) -> Result<()> {
         let tx = self.kv().write_tx().await?;
-        self.insert_with_tx(document, &tx).await?;
+        self.insert_with_tx(&tx, document).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -210,7 +210,7 @@ where
     /// and all indices are updated. If the closure returns `None`, no operation occurs.
     pub async fn update(
         &self,
-        query: T::DocumentQuery,
+        query: <T as Queryable>::DocumentQuery,
         update_fn: impl Fn(&T) -> Option<T>,
     ) -> Result<()> {
         let write_tx = self.kv.write_tx().await?;
@@ -223,7 +223,7 @@ where
                 for index in self.indices.iter() {
                     index.delete(&write_tx, &doc).await?;
                 }
-                self.insert_with_tx(&updated, &write_tx).await?;
+                self.insert_with_tx(&write_tx, &updated).await?;
             }
         }
         write_tx.commit().await?;
@@ -252,7 +252,7 @@ where
 
     pub async fn find_many(
         &self,
-        query: T::DocumentQuery,
+        query: <T as Queryable>::DocumentQuery,
     ) -> Result<impl futures::Stream<Item = Result<T>>> {
         let fields = query.fields();
         let index_maybe = self.select_index(&fields)?;
@@ -268,7 +268,7 @@ where
         }
     }
 
-    pub async fn find_one(&self, query: T::DocumentQuery) -> Result<Option<T>> {
+    pub async fn find_one(&self, query: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
         let out = self.find_many(query).await?;
         futures::pin_mut!(out);
         out.next().await.transpose()

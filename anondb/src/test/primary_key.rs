@@ -1,5 +1,44 @@
 use super::*;
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
+pub struct TestDocument2 {
+    pub id: u128,
+    pub other: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
+pub struct OtherDocument {
+    pub id: u128,
+    pub other: u64,
+}
+
+#[derive(AnonDB)]
+pub struct DB<K: KV> {
+    #[anondb(primary_key = id)]
+    #[anondb(index = id, other; unique = true)]
+    pub test_collection: Collection<TestDocument2, K>,
+    #[anondb(primary_key = id)]
+    #[anondb(index = other)]
+    pub other_collection: Collection<OtherDocument, K>,
+}
+
+#[tokio::test]
+async fn should_fail_to_insert_duplicate_primary_key() -> Result<()> {
+    let db = DB::<MemoryKV>::new(None).await?;
+
+    let doc = TestDocument2 {
+        id: 99,
+        other: "".into(),
+    };
+    db.test_collection.insert(&doc).await?;
+    db.test_collection
+        .insert(&doc)
+        .await
+        .expect_err("Should fail to insert duplicate primary key");
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn compound_primary_key() -> Result<()> {
     #[derive(AnonDB)]

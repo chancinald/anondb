@@ -1,7 +1,8 @@
+mod index;
 mod insert;
 mod migrations;
-mod misc;
 mod primary_key;
+mod query;
 mod range;
 mod unique_index;
 mod update;

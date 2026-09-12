@@ -1,5 +1,3 @@
-use futures::TryStreamExt;
-
 use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
@@ -22,63 +20,6 @@ pub struct DB<K: KV> {
     #[anondb(primary_key = id)]
     #[anondb(index = other)]
     pub other_collection: Collection<OtherDocument, K>,
-}
-
-#[tokio::test]
-async fn create_collections() -> Result<()> {
-    let db = DB::<MemoryKV>::new(None).await?;
-
-    db.test_collection
-        .insert(&TestDocument2 {
-            id: 0,
-            other: "".into(),
-        })
-        .await?;
-
-    assert_eq!(db.test_collection.count().await?, 1);
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn should_fail_to_insert_duplicate_primary_key() -> Result<()> {
-    let db = DB::<MemoryKV>::new(None).await?;
-
-    let doc = TestDocument2 {
-        id: 99,
-        other: "".into(),
-    };
-    db.test_collection.insert(&doc).await?;
-    db.test_collection
-        .insert(&doc)
-        .await
-        .expect_err("Should fail to insert duplicate primary key");
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn should_use_non_unique_index() -> Result<()> {
-    let db = DB::<MemoryKV>::new(None).await?;
-    let doc = OtherDocument { id: 99, other: 99 };
-    let doc2 = OtherDocument {
-        id: 200,
-        other: 200,
-    };
-    db.other_collection.insert(&doc).await?;
-    db.other_collection.insert(&doc2).await?;
-
-    let out = db
-        .other_collection
-        .find_many(OtherDocument::query().other(0..))
-        .await?
-        .try_collect::<Vec<_>>()
-        .await?;
-    assert_eq!(out.len(), 2);
-    assert_eq!(out.get(0).unwrap().other, 99);
-    assert_eq!(out.get(1).unwrap().other, 200);
-
-    Ok(())
 }
 
 #[tokio::test]

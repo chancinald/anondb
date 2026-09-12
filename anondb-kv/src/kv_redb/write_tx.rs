@@ -36,6 +36,28 @@ impl<'a> WriteOperations for RedbWriteTransaction<'a> {
             .rename_table(tabledef(table), tabledef(new_name))?;
         Ok(())
     }
+
+    async fn insert_multimap(&self, table: &str, key: &[u8], value: &[u8]) -> Result<()> {
+        let mut table = self.write.open_multimap_table(tabledef_multimap(table))?;
+        table.insert(key, value)?;
+        Ok(())
+    }
+
+    async fn remove_multimap_value(&self, table: &str, key: &[u8], value: &[u8]) -> Result<bool> {
+        let mut table = self.write.open_multimap_table(tabledef_multimap(table))?;
+        Ok(table.remove(key, value)?)
+    }
+
+    async fn remove_multimap(&self, table: &str, key: &[u8]) -> Result<bool> {
+        let mut table = self.write.open_multimap_table(tabledef_multimap(table))?;
+        let removed = table.remove_all(key)?;
+        Ok(removed.len() > 0)
+    }
+
+    async fn clear_multimap(&self, table: &str) -> Result<()> {
+        self.write.delete_multimap_table(tabledef_multimap(table))?;
+        Ok(())
+    }
 }
 
 impl<'a> ReadOperations for RedbWriteTransaction<'a> {
@@ -50,5 +72,30 @@ impl<'a> ReadOperations for RedbWriteTransaction<'a> {
     async fn count(&self, table: &str) -> Result<u64> {
         let table = self.write.open_table(tabledef(table))?;
         Ok(table.len()?)
+    }
+
+    async fn count_multimap(&self, table: &str) -> Result<u64> {
+        let table = self.write.open_multimap_table(tabledef_multimap(&table))?;
+        Ok(table.len()? as u64)
+    }
+
+    async fn count_multimap_values(&self, table: &str, key: &[u8]) -> Result<u64> {
+        let table = self.write.open_multimap_table(tabledef_multimap(&table))?;
+        Ok(table.get(key)?.len() as u64)
+    }
+
+    async fn get_multimap<'b>(
+        &'b self,
+        table: &'b str,
+        key: &'b [u8],
+    ) -> Result<impl Stream<Item = Result<Self::Item>> + 'b> {
+        Ok(async_stream::try_stream! {
+            let table = self.write.open_multimap_table(tabledef_multimap(&table))?;
+            for doc in table.get(key)? {
+                let doc = doc?;
+                let item = Self::Item::from((key.to_vec(), doc.value().to_vec()));
+                yield item;
+            }
+        })
     }
 }

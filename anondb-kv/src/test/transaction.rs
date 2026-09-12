@@ -1,3 +1,5 @@
+use futures::TryStreamExt;
+
 use super::*;
 
 #[domacro(all_kv_impls)]
@@ -127,68 +129,73 @@ async fn read_tx_consistent_over_write<T: KV>(handle: &T) -> Result<()> {
     Ok(())
 }
 
-// #[domacro(all_kv_impls)]
-// async fn write_not_visible_until_commit_multimap<T: KV>(handle: &T) -> Result<()> {
-//     let table_name = rand_utf8(10);
-//     let key = rand::random::<[u8; 32]>();
-//     let val = rand::random::<[u8; 32]>();
-//
-//     let write = handle.write_tx().await?;
-//
-//     write
-//         .insert_multimap(&table_name, key.as_slice(), val.as_slice())
-//         .await?;
-//
-//     assert!(
-//         handle
-//             .get_multimap(&table_name, key.as_slice())
-//             .await?
-//             .collect::<Vec<_>>()
-//             .is_empty()
-//     );
-//     assert_eq!(handle.count_multimap(&table_name).await?, 0);
-//
-//     write.commit().await?;
-//
-//     assert_eq!(
-//         handle
-//             .get_multimap(&table_name, key.as_slice())
-//             .await?
-//             .collect::<Result<Vec<_>>>()?
-//             .first()
-//             .unwrap()
-//             .value(),
-//         val
-//     );
-//     assert_eq!(handle.count_multimap(&table_name).await?, 1);
-//
-//     Ok(())
-// }
-//
-// #[domacro(all_kv_impls)]
-// async fn read_tx_consistent_over_write_multimap<T: KV>(handle: &T) -> Result<()> {
-//     let table_name = rand_utf8(10);
-//     let key = rand::random::<[u8; 32]>();
-//     let val = rand::random::<[u8; 32]>();
-//
-//     handle.insert_multimap(&table_name, key.as_slice(), val.as_slice())?;
-//
-//     let read = handle.read_tx()?;
-//
-//     assert_eq!(
-//         read.count_multimap(&table_name)?,
-//         1,
-//         "first read is incorrect"
-//     );
-//
-//     handle.remove_all_multimap(&table_name, key.as_slice())?;
-//     assert_eq!(handle.count_multimap(&table_name)?, 0);
-//
-//     assert_eq!(
-//         read.count_multimap(&table_name)?,
-//         1,
-//         "second read is incorrect"
-//     );
-//
-//     Ok(())
-// }
+#[domacro(all_kv_impls)]
+async fn write_not_visible_until_commit_multimap<T: KV>(handle: &T) -> Result<()> {
+    let table_name = rand_utf8(10);
+    let key = rand::random::<[u8; 32]>();
+    let val = rand::random::<[u8; 32]>();
+
+    let write = handle.write_tx().await?;
+
+    write
+        .insert_multimap(&table_name, key.as_slice(), val.as_slice())
+        .await?;
+
+    assert!(
+        handle
+            .get_multimap(&table_name, key.as_slice())
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?
+            .is_empty()
+    );
+    assert_eq!(handle.count_multimap(&table_name).await?, 0);
+
+    write.commit().await?;
+
+    assert_eq!(
+        handle
+            .get_multimap(&table_name, key.as_slice())
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?
+            .first()
+            .unwrap()
+            .value()
+            .await,
+        val
+    );
+    assert_eq!(handle.count_multimap(&table_name).await?, 1);
+
+    Ok(())
+}
+
+#[domacro(all_kv_impls)]
+async fn read_tx_consistent_over_write_multimap<T: KV>(handle: &T) -> Result<()> {
+    let table_name = rand_utf8(10);
+    let key = rand::random::<[u8; 32]>();
+    let val = rand::random::<[u8; 32]>();
+
+    handle
+        .insert_multimap(&table_name, key.as_slice(), val.as_slice())
+        .await?;
+
+    let read = handle.read_tx().await?;
+
+    assert_eq!(
+        read.count_multimap(&table_name).await?,
+        1,
+        "first read is incorrect"
+    );
+
+    handle.remove_multimap(&table_name, key.as_slice()).await?;
+    assert_eq!(handle.count_multimap(&table_name).await?, 0);
+
+    assert_eq!(
+        read.count_multimap(&table_name).await?,
+        1,
+        "second read is incorrect"
+    );
+
+    Ok(())
+}

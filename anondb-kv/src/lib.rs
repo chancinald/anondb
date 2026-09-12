@@ -14,6 +14,7 @@ pub use kv_redb::*;
 pub(crate) use log_ext as log;
 
 use anyhow::Result;
+use futures::Stream;
 
 /// A standard interface for accessing entries in a KV.
 pub trait OpaqueItem {
@@ -46,6 +47,19 @@ pub trait ReadOperations {
 
     /// Retrieve the value associated to a key for a table. Must be `O(1)`.
     fn get(&self, table: &str, key: &[u8]) -> impl Future<Output = Result<Option<Self::Item>>>;
+
+    /// Retrieve the number of non-empty keys in a multimap table.
+    fn count_multimap(&self, table: &str) -> impl Future<Output = Result<u64>>;
+
+    /// Retrieve the number of entries corresponding to a single key in a multimap table.
+    fn count_multimap_values(&self, table: &str, key: &[u8]) -> impl Future<Output = Result<u64>>;
+
+    /// Retrieve all values associated with a key in a multimap collection.
+    fn get_multimap<'a>(
+        &'a self,
+        table: &'a str,
+        key: &'a [u8],
+    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item>> + 'a>>;
 }
 
 pub trait WriteOperations {
@@ -65,15 +79,37 @@ pub trait WriteOperations {
     fn clear(&self, table: &str) -> impl Future<Output = Result<()>>;
 
     fn rename_table(&self, table: &str, new_name: &str) -> impl Future<Output = Result<()>>;
+
+    /// Insert a key into a table with multiple entries per key.
+    fn insert_multimap(
+        &self,
+        table: &str,
+        key: &[u8],
+        value: &[u8],
+    ) -> impl Future<Output = Result<()>>;
+
+    /// Remove a key and value from a multimap table.
+    fn remove_multimap_value(
+        &self,
+        table: &str,
+        key: &[u8],
+        value: &[u8],
+    ) -> impl Future<Output = Result<bool>>;
+
+    /// Remove a key from a multimap table.
+    fn remove_multimap(&self, table: &str, key: &[u8]) -> impl Future<Output = Result<bool>>;
+
+    /// Remove all entries in a multimap table.
+    fn clear_multimap(&self, table: &str) -> impl Future<Output = Result<()>>;
 }
 
 pub trait RangeReadOperation {
     type Item: OpaqueItem;
-    fn range<'a>(
-        &'a self,
+    fn range(
+        &self,
         table: &str,
-        range: impl RangeBounds<Vec<u8>> + 'a,
-    ) -> impl Future<Output = Result<impl Iterator<Item = Result<Self::Item>> + 'a>>;
+        range: impl RangeBounds<Vec<u8>>,
+    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item>>>>;
 }
 
 pub trait WriteTx: ReadOperations + WriteOperations {

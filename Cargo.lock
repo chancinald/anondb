@@ -35,8 +35,10 @@ name = "anondb-kv"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "async-stream",
  "domacro",
  "either",
+ "futures",
  "log",
  "paste",
  "rand",

@@ -1,3 +1,5 @@
+use futures::TryStreamExt;
+
 use super::*;
 
 #[domacro(all_kv_impls)]
@@ -15,10 +17,9 @@ async fn range_equal_len<T: KV>(handle: &T) -> Result<()> {
     entries.sort();
     let read_tx = handle.read_tx().await?;
 
-    let all_entries = read_tx
-        .range(&table_name, ..)
-        .await?
-        .collect::<Result<Vec<_>>>()?;
+    let query = read_tx.range(&table_name, ..).await?;
+    let stream = std::pin::pin!(query);
+    let all_entries = stream.try_collect::<Vec<_>>().await?;
     assert_eq!(all_entries.len(), entries.len());
     for (v0, v1) in all_entries.iter().zip(entries.iter()) {
         assert_eq!(v0.key(), v1);
@@ -26,20 +27,18 @@ async fn range_equal_len<T: KV>(handle: &T) -> Result<()> {
 
     let midpoint = entries.get(MIDPOINT).unwrap();
     {
-        let upper_entries = read_tx
-            .range(&table_name, midpoint.to_vec()..)
-            .await?
-            .collect::<Result<Vec<_>>>()?;
+        let query = read_tx.range(&table_name, midpoint.to_vec()..).await?;
+        let stream = std::pin::pin!(query);
+        let upper_entries = stream.try_collect::<Vec<_>>().await?;
         assert_eq!(upper_entries.len(), entries[MIDPOINT..].len());
         for (v0, v1) in upper_entries.iter().zip(entries[MIDPOINT..].iter()) {
             assert_eq!(v0.key(), v1);
         }
     }
     {
-        let lower_entries = read_tx
-            .range(&table_name, ..midpoint.to_vec())
-            .await?
-            .collect::<Result<Vec<<T as KV>::Item>>>()?;
+        let query = read_tx.range(&table_name, ..midpoint.to_vec()).await?;
+        let stream = std::pin::pin!(query);
+        let lower_entries = stream.try_collect::<Vec<_>>().await?;
         assert_eq!(lower_entries.len(), entries[..MIDPOINT].len());
         for (v0, v1) in lower_entries.iter().zip(entries[..MIDPOINT].iter()) {
             assert_eq!(v0.key(), v1);
@@ -48,10 +47,9 @@ async fn range_equal_len<T: KV>(handle: &T) -> Result<()> {
     {
         let midpoint = entries.get(50).unwrap();
         let midpoint = midpoint.to_vec();
-        let lower_inclusive_entries = read_tx
-            .range(&table_name, ..=midpoint)
-            .await?
-            .collect::<Result<Vec<_>>>()?;
+        let query = read_tx.range(&table_name, ..=midpoint).await?;
+        let stream = std::pin::pin!(query);
+        let lower_inclusive_entries = stream.try_collect::<Vec<_>>().await?;
         assert_eq!(lower_inclusive_entries.len(), entries[..=MIDPOINT].len());
         for (v0, v1) in lower_inclusive_entries
             .iter()
@@ -63,63 +61,3 @@ async fn range_equal_len<T: KV>(handle: &T) -> Result<()> {
 
     Ok(())
 }
-
-// #[domacro(all_kv_impls)]
-// async fn range_var_len<T: KV>(handle: &T) -> Result<()> {
-//     const LEN: usize = 100;
-//     const MIDPOINT: usize = LEN / 2;
-//
-//     let table_name = rand_utf8(10);
-//     let mut entries = Vec::<Vec<u8>>::default();
-//     for _ in 0..LEN {
-//         let byte_len = rand::random::<u16>();
-//         let mut key = Vec::<u8>::default();
-//         for _ in 0..byte_len {
-//             key.push(rand::random());
-//         }
-//         handle.insert(&table_name, key.as_slice(), &[0; 32])?;
-//         entries.push(key);
-//     }
-//     entries.sort();
-//
-//     let all_entries = handle.range(&table_name, ..)?.collect::<Result<Vec<_>>>()?;
-//     assert_eq!(all_entries.len(), entries.len());
-//     for (v0, v1) in all_entries.iter().zip(entries.iter()) {
-//         assert_eq!(v0.key(), v1);
-//     }
-//
-//     let midpoint = entries.get(MIDPOINT).unwrap();
-//     {
-//         let upper_entries = handle
-//             .range(&table_name, midpoint.as_slice()..)?
-//             .collect::<Result<Vec<_>>>()?;
-//         assert_eq!(upper_entries.len(), entries[MIDPOINT..].len());
-//         for (v0, v1) in upper_entries.iter().zip(entries[MIDPOINT..].iter()) {
-//             assert_eq!(v0.key(), v1);
-//         }
-//     }
-//     {
-//         let lower_entries = handle
-//             .range(&table_name, ..midpoint.as_slice())?
-//             .collect::<Result<Vec<_>>>()?;
-//         assert_eq!(lower_entries.len(), entries[..MIDPOINT].len());
-//         for (v0, v1) in lower_entries.iter().zip(entries[..MIDPOINT].iter()) {
-//             assert_eq!(v0.key(), v1);
-//         }
-//     }
-//     {
-//         let midpoint = entries.get(50).unwrap();
-//         let lower_inclusive_entries = handle
-//             .range(&table_name, ..=midpoint.as_slice())?
-//             .collect::<Result<Vec<_>>>()?;
-//         assert_eq!(lower_inclusive_entries.len(), entries[..=MIDPOINT].len());
-//         for (v0, v1) in lower_inclusive_entries
-//             .iter()
-//             .zip(entries[..=MIDPOINT].iter())
-//         {
-//             assert_eq!(v0.key(), v1);
-//         }
-//     }
-//
-//     Ok(())
-// }

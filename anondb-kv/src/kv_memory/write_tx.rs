@@ -4,18 +4,27 @@ use tokio::sync::Mutex;
 use super::*;
 
 pub struct MemoryKVWriteTransaction {
-    tables_snapshot: Mutex<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>,
+    tables_snapshot: Mutex<(
+        HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>,
+        HashMap<String, RedBlackTreeMapSync<Vec<u8>, HashSet<Vec<u8>>>>,
+    )>,
     pub(crate) tables_lock:
         OwnedRwLockWriteGuard<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>,
+    pub(crate) tables_multi_lock:
+        OwnedRwLockWriteGuard<HashMap<String, RedBlackTreeMapSync<Vec<u8>, HashSet<Vec<u8>>>>>,
 }
 
 impl MemoryKVWriteTransaction {
     pub fn new(
         tables_lock: OwnedRwLockWriteGuard<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>,
+        tables_multi_lock: OwnedRwLockWriteGuard<
+            HashMap<String, RedBlackTreeMapSync<Vec<u8>, HashSet<Vec<u8>>>>,
+        >,
     ) -> Self {
         Self {
-            tables_snapshot: Mutex::new(tables_lock.clone()),
+            tables_snapshot: Mutex::new((tables_lock.clone(), tables_multi_lock.clone())),
             tables_lock,
+            tables_multi_lock,
         }
     }
 }
@@ -23,7 +32,7 @@ impl MemoryKVWriteTransaction {
 impl ReadOperations for MemoryKVWriteTransaction {
     type Item = MemoryKVItem;
     async fn count(&self, table: &str) -> Result<u64> {
-        match self.tables_snapshot.lock().await.get(table) {
+        match self.tables_snapshot.lock().await.0.get(table) {
             Some(table) => Ok(table.size() as u64),
             None => {
                 log::warn!("table \"{table}\" not found");
@@ -33,7 +42,7 @@ impl ReadOperations for MemoryKVWriteTransaction {
     }
 
     async fn get(&self, table: &str, key: &[u8]) -> Result<Option<MemoryKVItem>> {
-        if let Some(table) = self.tables_snapshot.lock().await.get(table)
+        if let Some(table) = self.tables_snapshot.lock().await.0.get(table)
             && let Some(item) = table.get(key)
         {
             Ok(Some(MemoryKVItem {
@@ -44,12 +53,55 @@ impl ReadOperations for MemoryKVWriteTransaction {
             Ok(None)
         }
     }
+
+    async fn count_multimap(&self, table: &str) -> Result<u64> {
+        Ok(self
+            .tables_snapshot
+            .lock()
+            .await
+            .1
+            .get(table)
+            .map(|v| v.size() as u64)
+            .unwrap_or_default())
+    }
+
+    async fn count_multimap_values(&self, table: &str, key: &[u8]) -> Result<u64> {
+        Ok(self
+            .tables_snapshot
+            .lock()
+            .await
+            .1
+            .get(table)
+            .and_then(|v| v.get(key))
+            .map(|v| v.len() as u64)
+            .unwrap_or_default())
+    }
+
+    async fn get_multimap<'a>(
+        &'a self,
+        table: &'a str,
+        key: &'a [u8],
+    ) -> Result<impl futures::Stream<Item = Result<Self::Item>> + 'a> {
+        Ok(async_stream::try_stream! {
+            if let Some(table) = self.tables_snapshot.lock().await.1.get(table)
+                && let Some(entry) = table.get(key)
+            {
+                for doc in entry.iter() {
+                    let item = MemoryKVItem {
+                        key: key.to_vec(),
+                        value: doc.clone(),
+                    };
+                    yield item;
+                }
+            }
+        })
+    }
 }
 
 impl WriteOperations for MemoryKVWriteTransaction {
     type Item = MemoryKVItem;
     async fn clear(&self, table: &str) -> Result<()> {
-        match self.tables_snapshot.lock().await.get_mut(table) {
+        match self.tables_snapshot.lock().await.0.get_mut(table) {
             Some(table) => {
                 *table = RedBlackTreeMapSync::default();
                 Ok(())
@@ -62,8 +114,8 @@ impl WriteOperations for MemoryKVWriteTransaction {
     }
 
     async fn insert(&self, table: &str, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>> {
-        let mut tables = self.tables_snapshot.lock().await;
-        let table = tables.entry(table.into()).or_default();
+        let mut snapshot = self.tables_snapshot.lock().await;
+        let table = snapshot.0.entry(table.into()).or_default();
         Ok(if let Some(val) = table.get_mut(key) {
             let mut out = value.to_vec();
             std::mem::swap(val, &mut out);
@@ -75,7 +127,7 @@ impl WriteOperations for MemoryKVWriteTransaction {
     }
 
     async fn remove(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        match self.tables_snapshot.lock().await.get_mut(table) {
+        match self.tables_snapshot.lock().await.0.get_mut(table) {
             Some(table) => {
                 let prev = table.get(key).cloned();
                 table.remove_mut(key);
@@ -90,19 +142,59 @@ impl WriteOperations for MemoryKVWriteTransaction {
 
     async fn rename_table(&self, table: &str, new_name: &str) -> Result<()> {
         let mut tables = self.tables_snapshot.lock().await;
-        if let Some(table_data) = tables.remove(table) {
-            tables.insert(new_name.into(), table_data);
+        if let Some(table_data) = tables.0.remove(table) {
+            tables.0.insert(new_name.into(), table_data);
             Ok(())
         } else {
             anyhow::bail!("table \"{table}\" not found");
         }
+    }
+
+    async fn insert_multimap(&self, table: &str, key: &[u8], value: &[u8]) -> Result<()> {
+        let mut snapshot = self.tables_snapshot.lock().await;
+        let tables_multi = snapshot.1.entry(table.into()).or_default();
+        if let Some(table) = tables_multi.get_mut(key) {
+            table.insert(value.to_vec());
+        } else {
+            let mut set = HashSet::new();
+            set.insert(value.to_vec());
+            tables_multi.insert_mut(key.to_vec(), set);
+        }
+        Ok(())
+    }
+
+    async fn remove_multimap_value(&self, table: &str, key: &[u8], value: &[u8]) -> Result<bool> {
+        let mut snapshot = self.tables_snapshot.lock().await;
+        Ok(snapshot
+            .1
+            .get_mut(table)
+            .and_then(|v| v.get_mut(key))
+            .map(|v| v.remove(value))
+            .unwrap_or_default())
+    }
+
+    async fn remove_multimap(&self, table: &str, key: &[u8]) -> Result<bool> {
+        let mut snapshot = self.tables_snapshot.lock().await;
+        Ok(snapshot
+            .1
+            .get_mut(table)
+            .map(|v| v.remove_mut(key))
+            .unwrap_or_default())
+    }
+
+    async fn clear_multimap(&self, table: &str) -> Result<()> {
+        let mut snapshot = self.tables_snapshot.lock().await;
+        snapshot.1.remove(table);
+        Ok(())
     }
 }
 
 impl WriteTx for MemoryKVWriteTransaction {
     type Item = MemoryKVItem;
     async fn commit(mut self) -> Result<()> {
-        *self.tables_lock = self.tables_snapshot.into_inner();
+        let snapshot = self.tables_snapshot.into_inner();
+        *self.tables_lock = snapshot.0;
+        *self.tables_multi_lock = snapshot.1;
         Ok(())
     }
 }

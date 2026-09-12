@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 
 use anyhow::Result;
+use futures::StreamExt;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -83,9 +84,10 @@ where
         scan_range: GeneralRange<Vec<u8>>,
     ) -> Result<impl futures::Stream<Item = Result<T>> + 'a> {
         Ok(async_stream::try_stream! {
+            let out = tx.range(&self.kv_table_name, scan_range).await?;
+            let mut stream = std::pin::pin!(out);
             if self.options.unique {
-                for v in tx.range(&self.kv_table_name, scan_range).await? {
-                    let item = v?;
+                while let Some(item) = stream.next().await.transpose()? {
                     let entry = tx.get(&self.collection_name, item.value().await)
                         .await?
                         .ok_or_else(|| anyhow::anyhow!(

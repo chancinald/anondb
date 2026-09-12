@@ -12,6 +12,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
+use futures::Stream;
+use futures::StreamExt;
 use tokio::sync::RwLock;
 
 use redb::*;
@@ -22,9 +24,9 @@ fn tabledef(name: &str) -> TableDefinition<'_, &'static [u8], &'static [u8]> {
     TableDefinition::new(name)
 }
 
-// fn tabledef_multimap(name: &str) -> MultimapTableDefinition<'_, &'static [u8], &'static [u8]> {
-//     MultimapTableDefinition::new(name)
-// }
+fn tabledef_multimap(name: &str) -> MultimapTableDefinition<'_, &'static [u8], &'static [u8]> {
+    MultimapTableDefinition::new(name)
+}
 
 #[derive(Debug, Clone)]
 pub struct RedbKV<'a> {
@@ -79,6 +81,7 @@ impl<'a> KV for RedbKV<'a> {
         Ok(RedbReadTransaction {
             read: self.db.begin_read()?,
             tables: RwLock::new(HashMap::default()),
+            tables_multimap: RwLock::new(HashMap::default()),
             _phantom: PhantomData::default(),
         })
     }
@@ -95,6 +98,34 @@ impl<'a> ReadOperations for RedbKV<'a> {
     async fn get(&self, table: &str, key: &[u8]) -> Result<Option<Self::Item>> {
         let tx: <Self as KV>::ReadTransaction = self.read_tx().await?;
         tx.get(table, key).await
+    }
+
+    async fn count_multimap(&self, table: &str) -> Result<u64> {
+        self.read_tx().await?.count_multimap(table).await
+    }
+
+    async fn count_multimap_values(&self, table: &str, key: &[u8]) -> Result<u64> {
+        self.read_tx()
+            .await?
+            .count_multimap_values(table, key)
+            .await
+    }
+
+    async fn get_multimap<'b>(
+        &'b self,
+        table: &str,
+        key: &[u8],
+    ) -> Result<impl Stream<Item = Result<Self::Item>> + 'b> {
+        let table = table.to_string();
+        let key = key.to_vec();
+        Ok(async_stream::try_stream! {
+            let tx: <Self as KV>::ReadTransaction = self.read_tx().await?;
+            let out = tx.get_multimap(&table, key.as_slice()).await?;
+            let mut stream = std::pin::pin!(out);
+            while let Some(item) = stream.next().await.transpose()? {
+                yield item;
+            }
+        })
     }
 }
 
@@ -126,5 +157,33 @@ impl<'a> WriteOperations for RedbKV<'a> {
         let out = tx.rename_table(table, new_name).await?;
         tx.commit().await?;
         Ok(out)
+    }
+
+    async fn insert_multimap(&self, table: &str, key: &[u8], value: &[u8]) -> Result<()> {
+        let tx = self.write_tx().await?;
+        let out = tx.insert_multimap(table, key, value).await?;
+        tx.commit().await?;
+        Ok(out)
+    }
+
+    async fn remove_multimap_value(&self, table: &str, key: &[u8], value: &[u8]) -> Result<bool> {
+        let tx = self.write_tx().await?;
+        let out = tx.remove_multimap_value(table, key, value).await?;
+        tx.commit().await?;
+        Ok(out)
+    }
+
+    async fn remove_multimap(&self, table: &str, key: &[u8]) -> Result<bool> {
+        let tx = self.write_tx().await?;
+        let out = tx.remove_multimap(table, key).await?;
+        tx.commit().await?;
+        Ok(out)
+    }
+
+    async fn clear_multimap(&self, table: &str) -> Result<()> {
+        let tx = self.write_tx().await?;
+        tx.clear_multimap(table).await?;
+        tx.commit().await?;
+        Ok(())
     }
 }

@@ -14,13 +14,13 @@ async fn should_insert_and_retrieve_documents() -> Result<()> {
     for _ in 0..100 {
         db.test.insert(&TestDocument::default()).await?;
     }
-    let doc = db
+    let query = db
         .test
         .find_many(TestDocument::query().id3(99..u128::MAX))
-        .await?
-        .try_collect::<Vec<_>>()
         .await?;
-    println!("found {}", doc.len());
+    let stream = std::pin::pin!(query);
+    let docs = stream.try_collect::<Vec<_>>().await?;
+    println!("found {}", docs.len());
 
     Ok(())
 }

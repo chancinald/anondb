@@ -16,6 +16,8 @@ redb = ["dep:redb"]
 anyhow = { workspace = true }
 log_ext = { workspace = true }
 rand = { workspace = true }
+futures = { workspace = true }
+async-stream = { workspace = true }
 
 either = "1"
 redb = { version = "4", optional = true }

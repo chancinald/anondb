@@ -6,6 +6,8 @@ members = ["anondb", "anondb-kv", "anondb-macros", "domacro"]
 anyhow = "1"
 serde = "1"
 log_ext = { package = "log", version = "0" }
+futures = "0.3"
+async-stream = "0.3"
 
 anondb = "0.2"
 anondb-macros = "0.2"

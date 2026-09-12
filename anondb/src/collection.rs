@@ -100,8 +100,9 @@ where
                 index.clear(&write_tx).await?;
                 assert_eq!(write_tx.count(index.kv_table_name()).await?, 0);
             }
-            for v in read_tx.range(&self.name, ..).await? {
-                let item = v?;
+            let out = read_tx.range(&self.name, ..).await?;
+            let mut stream = std::pin::pin!(out);
+            while let Some(item) = stream.next().await.transpose()? {
                 let mut bytes = item.value().await;
                 let values = rmpv::decode::read_value(&mut bytes)?
                     .as_array()
@@ -215,8 +216,8 @@ where
     ) -> Result<()> {
         let write_tx = self.kv.write_tx().await?;
         let out = self.find_many(query).await?;
-        futures::pin_mut!(out);
-        while let Some(doc) = out.next().await.transpose()? {
+        let mut stream = std::pin::pin!(out);
+        while let Some(doc) = stream.next().await.transpose()? {
             if let Some(updated) = update_fn(&doc) {
                 let primary_key = (self.serialize_primary_key)(&doc);
                 write_tx.remove(&self.name, &primary_key).await?;
@@ -281,8 +282,9 @@ where
         scan_range: GeneralRange<Vec<u8>>,
     ) -> Result<impl futures::Stream<Item = Result<T>> + 'a> {
         Ok(async_stream::try_stream! {
-            for v in tx.range(&self.name, scan_range).await? {
-                let item = v?;
+            let out = tx.range(&self.name, scan_range).await?;
+            let mut stream = std::pin::pin!(out);
+            while let Some(item) = stream.next().await.transpose()? {
                 let doc = rmp_serde::from_slice::<T>(item.value().await)?;
                 if doc.matches(&query) {
                     yield doc;

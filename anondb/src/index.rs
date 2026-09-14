@@ -71,6 +71,28 @@ where
         &self.kv_table_name
     }
 
+    pub(crate) fn description(&self) -> IndexDescription {
+        IndexDescription {
+            field_names: self
+                .field_names
+                .iter()
+                .map(|(name, _)| name.to_string())
+                .collect(),
+            options: self.options.clone(),
+            table_name: self.kv_table_name.clone(),
+        }
+    }
+
+    pub(crate) fn matches(&self, description: &IndexDescription) -> bool {
+        self.field_names
+            .iter()
+            .map(|(name, _)| name.to_string())
+            .collect::<Vec<_>>()
+            == description.field_names
+            && self.options == description.options
+            && self.kv_table_name == description.table_name
+    }
+
     pub(crate) async fn clear<'a>(
         &'a self,
         tx: &'a (impl ReadOperations + WriteOperations),

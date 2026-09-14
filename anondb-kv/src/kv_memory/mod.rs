@@ -92,6 +92,26 @@ impl KV for MemoryKV {
             tables_multi_lock,
         ))
     }
+
+    async fn list_tables(&self) -> Result<Vec<String>> {
+        Ok(self
+            .get_read_snapshot()
+            .await
+            .0
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect())
+    }
+
+    async fn list_multimap_tables(&self) -> Result<Vec<String>> {
+        Ok(self
+            .get_read_snapshot()
+            .await
+            .1
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect())
+    }
 }
 
 impl ReadOperations for MemoryKV {
@@ -120,16 +140,10 @@ impl ReadOperations for MemoryKV {
 impl WriteOperations for MemoryKV {
     type Item = MemoryKVItem;
     async fn clear(&self, table: &str) -> Result<()> {
-        match self.tables.write().await.get_mut(table) {
-            Some(table) => {
-                *table = RedBlackTreeMapSync::default();
-                Ok(())
-            }
-            None => {
-                log::warn!("table \"{table}\" not found");
-                Ok(())
-            }
-        }
+        let tx = self.write_tx().await?;
+        tx.clear(table).await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     async fn insert(&self, table: &str, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>> {

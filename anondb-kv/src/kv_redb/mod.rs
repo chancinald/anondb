@@ -85,6 +85,24 @@ impl<'a> KV for RedbKV<'a> {
             _phantom: PhantomData::default(),
         })
     }
+
+    async fn list_tables(&self) -> Result<Vec<String>> {
+        Ok(self
+            .db
+            .begin_read()?
+            .list_tables()?
+            .map(|v| v.name().to_string())
+            .collect())
+    }
+
+    async fn list_multimap_tables(&self) -> Result<Vec<String>> {
+        Ok(self
+            .db
+            .begin_read()?
+            .list_multimap_tables()?
+            .map(|v| v.name().to_string())
+            .collect())
+    }
 }
 
 /// Operations occuring outside of a transaction. "One and done" operations.

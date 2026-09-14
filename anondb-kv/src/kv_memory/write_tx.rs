@@ -81,16 +81,10 @@ impl ReadOperations for MemoryKVWriteTransaction {
 impl WriteOperations for MemoryKVWriteTransaction {
     type Item = MemoryKVItem;
     async fn clear(&self, table: &str) -> Result<()> {
-        match self.tables_snapshot.lock().await.0.get_mut(table) {
-            Some(table) => {
-                *table = RedBlackTreeMapSync::default();
-                Ok(())
-            }
-            None => {
-                log::warn!("table \"{table}\" not found");
-                Ok(())
-            }
+        if self.tables_snapshot.lock().await.0.remove(table).is_none() {
+            log::warn!("table \"{table}\" not found");
         }
+        Ok(())
     }
 
     async fn insert(&self, table: &str, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>> {
@@ -163,8 +157,9 @@ impl WriteOperations for MemoryKVWriteTransaction {
     }
 
     async fn clear_multimap(&self, table: &str) -> Result<()> {
-        let mut snapshot = self.tables_snapshot.lock().await;
-        snapshot.1.remove(table);
+        if self.tables_snapshot.lock().await.1.remove(table).is_none() {
+            log::warn!("multimap table \"{table}\" not found");
+        }
         Ok(())
     }
 }

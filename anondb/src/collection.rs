@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::collections::HashSet;
 
 use anyhow::Result;
 use futures::StreamExt;
@@ -54,7 +55,7 @@ where
             log::info!("non-primary indices: {}", self.indices.len());
         }
         let write_tx = self.kv.write_tx().await?;
-        let meta_table = format!("__metadata_{}", self.name);
+        let meta_table = format!("{NAME_SEPARATOR}metadata_{}", self.name);
         let description_key = "description".as_bytes();
         // version is determined by number of migrations defined
         // this is the version of our implementation
@@ -69,6 +70,7 @@ where
                 let description = CollectionDescription {
                     version: doc_version,
                     fields: T::field_types().clone(),
+                    indices: Default::default(),
                 };
                 write_tx
                     .insert(
@@ -137,12 +139,72 @@ where
                     &rmp_serde::to_vec(&CollectionDescription {
                         version: doc_version,
                         fields: T::field_types().clone(),
+                        indices: self
+                            .indices
+                            .iter()
+                            .map(|index| index.description())
+                            .collect(),
                     })?,
                 )
                 .await?;
             log::info!("collection \"{}\" migration complete!", self.name);
         } else if T::field_types() != &existing_description.fields {
             anyhow::bail!("collection \"{}\" has inconsistent stored data!", self.name)
+        } else {
+            let mut matched_indices = HashSet::<String>::default();
+            for index in existing_description.indices.iter() {
+                if let Some(v) = self.indices.iter().find(|v| v.matches(index)) {
+                    if !matched_indices.insert(v.kv_table_name().into()) {
+                        anyhow::bail!("duplicate index name detected: \"{}\"", index.table_name)
+                    }
+                    // otherwise the index is unchanged
+                } else {
+                    log::info!("dropping index: \"{}\"", index.table_name);
+                    // we dropped an index from the schema
+                    if index.options.unique {
+                        write_tx.clear(&index.table_name).await?;
+                    } else {
+                        write_tx.clear_multimap(&index.table_name).await?;
+                    }
+                }
+            }
+            let mut indices_needing_rebuild = Vec::default();
+            for index in self.indices.iter() {
+                if !matched_indices.contains(index.kv_table_name()) {
+                    // needs to be rebuilt
+                    indices_needing_rebuild.push(index);
+                }
+            }
+            if !indices_needing_rebuild.is_empty() {
+                log::info!("collection \"{}\" needs index rebuild", self.name);
+                for index in indices_needing_rebuild.iter() {
+                    index.clear(&write_tx).await?;
+                }
+                let read_tx = self.kv.read_tx().await?;
+                let out = read_tx.range(&self.name, ..).await?;
+                let mut stream = std::pin::pin!(out);
+                while let Some(item) = stream.next().await.transpose()? {
+                    let doc = rmp_serde::from_slice::<T>(item.value().await)?;
+                    for index in indices_needing_rebuild.iter() {
+                        index.insert(&write_tx, &doc, item.key()).await?;
+                    }
+                }
+            }
+            write_tx
+                .insert(
+                    &meta_table,
+                    description_key,
+                    &rmp_serde::to_vec(&CollectionDescription {
+                        version: doc_version,
+                        fields: T::field_types().clone(),
+                        indices: self
+                            .indices
+                            .iter()
+                            .map(|index| index.description())
+                            .collect(),
+                    })?,
+                )
+                .await?;
         }
         // commit the transaction
         write_tx.commit().await?;

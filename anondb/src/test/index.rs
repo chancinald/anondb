@@ -47,3 +47,58 @@ async fn should_use_non_unique_index() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn should_automatically_rebuild_indices() -> Result<()> {
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
+    pub struct TestDocument {
+        pub id: u128,
+        pub other: String,
+    }
+    impl Default for TestDocument {
+        fn default() -> Self {
+            Self {
+                id: rand::random(),
+                other: rand::random::<u128>().to_string(),
+            }
+        }
+    }
+    let (db_path, orig_table_count) = {
+        #[derive(AnonDB)]
+        pub struct DB<K: KV> {
+            #[anondb(primary_key = id)]
+            #[anondb(index = id, other; unique = true)]
+            pub test_collection: Collection<TestDocument, K>,
+        }
+        let db = DB::<RedbKV>::new(None).await?;
+        for _ in 0..100 {
+            db.test_collection.insert(&Default::default()).await?;
+        }
+        let orig_table_count = db.test_collection.kv().list_tables().await?.len();
+        assert_eq!(
+            db.test_collection.kv().list_multimap_tables().await?.len(),
+            0
+        );
+        (
+            db.test_collection.kv().db_path().to_path_buf(),
+            orig_table_count,
+        )
+    };
+    #[derive(AnonDB)]
+    pub struct DB<K: KV> {
+        #[anondb(primary_key = id)]
+        #[anondb(index = id, other)]
+        pub test_collection: Collection<TestDocument, K>,
+    }
+    let db = DB::<RedbKV>::new(Some(Box::new(db_path))).await?;
+    assert_eq!(
+        db.test_collection.kv().list_tables().await?.len(),
+        orig_table_count - 1
+    );
+    assert_eq!(
+        db.test_collection.kv().list_multimap_tables().await?.len(),
+        1
+    );
+
+    Ok(())
+}

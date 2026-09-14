@@ -44,6 +44,9 @@ pub trait KV:
     fn write_tx(&self) -> impl Future<Output = Result<Self::WriteTransaction>>;
     /// Begin a new read transaction on the kv.
     fn read_tx(&self) -> impl Future<Output = Result<Self::ReadTransaction>>;
+
+    fn list_tables(&self) -> impl Future<Output = Result<Vec<String>>>;
+    fn list_multimap_tables(&self) -> impl Future<Output = Result<Vec<String>>>;
 }
 
 pub trait ReadOperations {

@@ -1,6 +1,7 @@
 mod clear;
 mod empty;
 mod insert;
+mod list_tables;
 mod range;
 mod remove;
 mod transaction;

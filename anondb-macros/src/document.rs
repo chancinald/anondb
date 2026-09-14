@@ -1,6 +1,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::Result;
+use syn::spanned::Spanned;
 use syn::*;
 
 use super::*;
@@ -22,7 +23,10 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("migrations") {
                 if migrations_fn_maybe.is_some() {
-                    panic!("duplicate document migrations definition!");
+                    return Err(syn::Error::new(
+                        meta.path.span(),
+                        "duplicate document migrations definition!",
+                    ));
                 }
                 let fn_name = meta.value()?.parse::<syn::Path>()?;
                 migrations_fn_maybe = Some(quote! {

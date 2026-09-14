@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -81,14 +82,29 @@ impl Parse for IndexDef {
             "primary_key" => IndexType::Primary,
             "index" => IndexType::Normal,
             _ => {
-                panic!(
-                    "bad AnonDB keyword, expected \"primary_key\" or \"index\", got: \"{keyword}\""
-                )
+                return Err(syn::Error::new(
+                    keyword.span(),
+                    format!(
+                        "bad AnonDB keyword, expected \"primary_key\" or \"index\", got: \"{keyword}\""
+                    ),
+                ));
             }
         };
         input.parse::<Token![=]>()?;
         let field_list = Punctuated::<Ident, Token![,]>::parse_separated_nonempty(input)?;
         let fields: Vec<Ident> = field_list.into_iter().collect();
+        // check that no field is repeated
+        {
+            let mut fields_set = HashSet::<String>::default();
+            for field in fields.iter() {
+                if !fields_set.insert(field.to_string()) {
+                    return Err(syn::Error::new(
+                        field.span(),
+                        format!("index contains duplicate field: {}", field),
+                    ));
+                }
+            }
+        }
 
         let mut options = HashMap::default();
 

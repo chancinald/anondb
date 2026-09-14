@@ -110,23 +110,6 @@ impl<'a> ReadOperations for RedbKV<'a> {
             .count_multimap_values(table, key)
             .await
     }
-
-    async fn get_multimap<'b>(
-        &'b self,
-        table: &str,
-        key: &[u8],
-    ) -> Result<impl Stream<Item = Result<Self::Item>> + 'b> {
-        let table = table.to_string();
-        let key = key.to_vec();
-        Ok(async_stream::try_stream! {
-            let tx: <Self as KV>::ReadTransaction = self.read_tx().await?;
-            let out = tx.get_multimap(&table, key.as_slice()).await?;
-            let mut stream = std::pin::pin!(out);
-            while let Some(item) = stream.next().await.transpose()? {
-                yield item;
-            }
-        })
-    }
 }
 
 impl<'a> WriteOperations for RedbKV<'a> {
@@ -216,6 +199,23 @@ impl<'a> RangeReadOperations for RedbKV<'a> {
             let mut stream = std::pin::pin!(out);
             while let Some(doc) = stream.next().await.transpose()? {
                 yield doc;
+            }
+        })
+    }
+
+    async fn get_multimap<'b>(
+        &'b self,
+        table: &str,
+        key: &[u8],
+    ) -> Result<impl Stream<Item = Result<Self::Item>> + 'b> {
+        let table = table.to_string();
+        let key = key.to_vec();
+        Ok(async_stream::try_stream! {
+            let tx: <Self as KV>::ReadTransaction = self.read_tx().await?;
+            let out = tx.get_multimap(&table, key.as_slice()).await?;
+            let mut stream = std::pin::pin!(out);
+            while let Some(item) = stream.next().await.transpose()? {
+                yield item;
             }
         })
     }

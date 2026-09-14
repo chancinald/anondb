@@ -15,7 +15,6 @@ pub(crate) use log_ext as log;
 
 use anyhow::Result;
 use futures::Stream;
-use futures::StreamExt;
 
 /// A standard interface for accessing entries in a KV.
 pub trait OpaqueItem {
@@ -60,13 +59,6 @@ pub trait ReadOperations {
 
     /// Retrieve the number of entries corresponding to a single key in a multimap table.
     fn count_multimap_values(&self, table: &str, key: &[u8]) -> impl Future<Output = Result<u64>>;
-
-    /// Retrieve all values associated with a key in a multimap collection.
-    fn get_multimap<'a>(
-        &'a self,
-        table: &'a str,
-        key: &'a [u8],
-    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item>> + 'a>>;
 }
 
 pub trait WriteOperations {
@@ -113,18 +105,25 @@ pub trait WriteOperations {
 pub trait RangeReadOperations {
     type Item: OpaqueItem;
     /// Get a range of entries in a table as an async stream.
-    async fn range(
+    fn range(
         &self,
         table: &str,
         range: impl RangeBounds<Vec<u8>>,
-    ) -> Result<impl Stream<Item = Result<Self::Item>>>;
+    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item>>>>;
 
     /// Get a range of entries in a multimap table as an async stream.
-    async fn range_multimap(
+    fn range_multimap(
         &self,
         table: &str,
         range: impl RangeBounds<Vec<u8>>,
-    ) -> Result<impl Stream<Item = Result<Self::Item>>>;
+    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item>>>>;
+
+    /// Retrieve all values associated with a key in a multimap collection.
+    fn get_multimap<'a>(
+        &'a self,
+        table: &'a str,
+        key: &'a [u8],
+    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item>> + 'a>>;
 }
 
 pub trait WriteTx: ReadOperations + WriteOperations {

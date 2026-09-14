@@ -49,30 +49,6 @@ impl ReadOperations for MemoryKVReadTransaction {
             .and_then(|v| Some(v.len() as u64))
             .unwrap_or(0u64))
     }
-
-    async fn get_multimap(
-        &self,
-        table: &str,
-        key: &[u8],
-    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
-        Ok(
-            if let Some(table) = self.tables_multi.get(table)
-                && let Some(entry) = table.get(key)
-            {
-                Either::Left(async_stream::try_stream! {
-                    for doc in entry.iter() {
-                        let item = MemoryKVItem {
-                            key: key.to_vec(),
-                            value: doc.clone(),
-                        };
-                        yield item;
-                    }
-                })
-            } else {
-                Either::Right(futures::stream::empty())
-            },
-        )
-    }
 }
 
 impl RangeReadOperations for MemoryKVReadTransaction {
@@ -113,5 +89,29 @@ impl RangeReadOperations for MemoryKVReadTransaction {
                 })
             }),
         )))
+    }
+
+    async fn get_multimap(
+        &self,
+        table: &str,
+        key: &[u8],
+    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+        Ok(
+            if let Some(table) = self.tables_multi.get(table)
+                && let Some(entry) = table.get(key)
+            {
+                Either::Left(async_stream::try_stream! {
+                    for doc in entry.iter() {
+                        let item = MemoryKVItem {
+                            key: key.to_vec(),
+                            value: doc.clone(),
+                        };
+                        yield item;
+                    }
+                })
+            } else {
+                Either::Right(futures::stream::empty())
+            },
+        )
     }
 }

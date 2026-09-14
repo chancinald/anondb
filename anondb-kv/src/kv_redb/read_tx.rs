@@ -94,24 +94,6 @@ impl<'a> ReadOperations for RedbReadTransaction<'a> {
             None => Ok(0),
         }
     }
-
-    async fn get_multimap<'b>(
-        &'b self,
-        table: &str,
-        key: &[u8],
-    ) -> Result<impl Stream<Item = Result<Self::Item>> + 'b> {
-        let Some(table) = self.read_multimap_table(table).await? else {
-            return Ok(Either::Left(futures::stream::empty()));
-        };
-        let key = key.to_vec();
-        Ok(Either::Right(async_stream::try_stream! {
-            for doc in table.get(key.as_slice())? {
-                let doc = doc?;
-                let item = Self::Item::from((key.as_slice(), doc));
-                yield item;
-            }
-        }))
-    }
 }
 
 use std::ops::Bound;
@@ -170,5 +152,23 @@ impl<'a> RangeReadOperations for RedbReadTransaction<'a> {
             )),
             None => Ok(Either::Right(futures::stream::empty())),
         }
+    }
+
+    async fn get_multimap<'b>(
+        &'b self,
+        table: &str,
+        key: &[u8],
+    ) -> Result<impl Stream<Item = Result<Self::Item>> + 'b> {
+        let Some(table) = self.read_multimap_table(table).await? else {
+            return Ok(Either::Left(futures::stream::empty()));
+        };
+        let key = key.to_vec();
+        Ok(Either::Right(async_stream::try_stream! {
+            for doc in table.get(key.as_slice())? {
+                let doc = doc?;
+                let item = Self::Item::from((key.as_slice(), doc));
+                yield item;
+            }
+        }))
     }
 }

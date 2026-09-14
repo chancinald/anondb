@@ -32,8 +32,8 @@ async fn insert_table<T: ReadOperations + WriteOperations>(handle: &T) -> Result
     Ok(())
 }
 
-#[domacro(all_read_write_impls)]
-async fn insert_multimap_table<T: ReadOperations + WriteOperations>(handle: &T) -> Result<()> {
+#[domacro(all_kv_impls)]
+async fn insert_multimap_table<T: KV>(handle: &T) -> Result<()> {
     let table_name = rand_utf8(10);
     let key = rand::random::<[u8; 32]>();
     let val = rand::random::<[u8; 32]>();

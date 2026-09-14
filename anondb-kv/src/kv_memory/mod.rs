@@ -115,21 +115,6 @@ impl ReadOperations for MemoryKV {
             .count_multimap_values(table, key)
             .await
     }
-
-    async fn get_multimap(
-        &self,
-        table: &str,
-        key: &[u8],
-    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
-        Ok(async_stream::try_stream! {
-            let tx = self.read_tx().await?;
-            let out = tx.get_multimap(table, key).await?;
-            let mut stream = std::pin::pin!(out);
-            while let Some(doc) = stream.next().await.transpose()? {
-                yield doc;
-            }
-        })
-    }
 }
 
 impl WriteOperations for MemoryKV {
@@ -244,6 +229,21 @@ impl RangeReadOperations for MemoryKV {
         Ok(async_stream::try_stream! {
             let tx = self.read_tx().await?;
             let out = tx.range_multimap(table, range).await?;
+            let mut stream = std::pin::pin!(out);
+            while let Some(doc) = stream.next().await.transpose()? {
+                yield doc;
+            }
+        })
+    }
+
+    async fn get_multimap(
+        &self,
+        table: &str,
+        key: &[u8],
+    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+        Ok(async_stream::try_stream! {
+            let tx = self.read_tx().await?;
+            let out = tx.get_multimap(table, key).await?;
             let mut stream = std::pin::pin!(out);
             while let Some(doc) = stream.next().await.transpose()? {
                 yield doc;

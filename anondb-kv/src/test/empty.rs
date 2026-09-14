@@ -37,8 +37,8 @@ async fn count_non_existent_multimap_table<T: ReadOperations>(read: &T) -> Resul
     Ok(())
 }
 
-#[domacro(all_read_impls)]
-async fn get_non_existent_multimap_table<T: ReadOperations>(read: &T) -> Result<()> {
+#[domacro(all_range_read_impls)]
+async fn get_non_existent_multimap_table<T: RangeReadOperations>(read: &T) -> Result<()> {
     let table_name = rand_utf8(10);
     let key = rand::random::<[u8; 32]>();
     assert!(

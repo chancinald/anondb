@@ -48,8 +48,8 @@ async fn remove<T: ReadOperations + WriteOperations>(handle: &T) -> Result<()> {
     Ok(())
 }
 
-#[domacro(all_read_write_impls)]
-async fn remove_multimap<T: ReadOperations + WriteOperations>(handle: &T) -> Result<()> {
+#[domacro(all_kv_impls)]
+async fn remove_multimap<T: KV>(handle: &T) -> Result<()> {
     let table_name = rand_utf8(10);
     let key = rand::random::<[u8; 32]>();
     let val = rand::random::<[u8; 32]>();
@@ -85,8 +85,8 @@ async fn remove_multimap<T: ReadOperations + WriteOperations>(handle: &T) -> Res
     Ok(())
 }
 
-#[domacro(all_read_write_impls)]
-async fn remove_all_multimap<T: ReadOperations + WriteOperations>(handle: &T) -> Result<()> {
+#[domacro(all_kv_impls)]
+async fn remove_all_multimap<T: KV>(handle: &T) -> Result<()> {
     let table_name = rand_utf8(10);
     let key = rand::random::<[u8; 32]>();
     let val0 = rand::random::<[u8; 32]>();

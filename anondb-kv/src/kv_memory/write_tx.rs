@@ -76,26 +76,6 @@ impl ReadOperations for MemoryKVWriteTransaction {
             .map(|v| v.len() as u64)
             .unwrap_or_default())
     }
-
-    async fn get_multimap<'a>(
-        &'a self,
-        table: &'a str,
-        key: &'a [u8],
-    ) -> Result<impl futures::Stream<Item = Result<Self::Item>> + 'a> {
-        Ok(async_stream::try_stream! {
-            if let Some(table) = self.tables_snapshot.lock().await.1.get(table)
-                && let Some(entry) = table.get(key)
-            {
-                for doc in entry.iter() {
-                    let item = MemoryKVItem {
-                        key: key.to_vec(),
-                        value: doc.clone(),
-                    };
-                    yield item;
-                }
-            }
-        })
-    }
 }
 
 impl WriteOperations for MemoryKVWriteTransaction {

@@ -83,19 +83,4 @@ impl<'a> ReadOperations for RedbWriteTransaction<'a> {
         let table = self.write.open_multimap_table(tabledef_multimap(&table))?;
         Ok(table.get(key)?.len() as u64)
     }
-
-    async fn get_multimap<'b>(
-        &'b self,
-        table: &'b str,
-        key: &'b [u8],
-    ) -> Result<impl Stream<Item = Result<Self::Item>> + 'b> {
-        Ok(async_stream::try_stream! {
-            let table = self.write.open_multimap_table(tabledef_multimap(&table))?;
-            for doc in table.get(key)? {
-                let doc = doc?;
-                let item = Self::Item::from((key.to_vec(), doc.value().to_vec()));
-                yield item;
-            }
-        })
-    }
 }

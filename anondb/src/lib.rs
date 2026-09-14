@@ -33,6 +33,8 @@ pub use anondb_macros::Document;
 pub use rmp_serde;
 pub use rmpv;
 
+pub(crate) const NAME_SEPARATOR: &'static str = "___";
+
 /// A trait representing a document which may be queried.
 pub trait Queryable: Clone {
     type DocumentQuery: Default + Clone + Query + 'static;

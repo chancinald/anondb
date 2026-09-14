@@ -40,15 +40,19 @@ where
         serialize: fn(&T) -> Vec<u8>,
         options: IndexOptions,
     ) -> Self {
+        assert!(!field_names.is_empty(), "attempting to create empty index");
         let kv_table_name = format!(
-            "{}_{}{}",
-            collection_name,
+            "{NAME_SEPARATOR}{collection_name}{NAME_SEPARATOR}{}{}",
             field_names
                 .iter()
                 .map(|(name, _)| name.to_string())
                 .collect::<Vec<_>>()
                 .join("_"),
-            if options.unique { "_unique" } else { "" }
+            if options.unique {
+                format!("{NAME_SEPARATOR}unique")
+            } else {
+                "".into()
+            }
         );
         Self {
             collection_name,

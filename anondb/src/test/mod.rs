@@ -47,3 +47,21 @@ impl Default for TestDocument {
         }
     }
 }
+
+#[tokio::test]
+async fn should_fail_bad_collection_name() -> Result<()> {
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
+    pub struct TestDocument {
+        pub id: u128,
+    }
+
+    #[derive(Debug, AnonDB)]
+    pub struct DB<K: KV> {
+        #[anondb(primary_key = id)]
+        pub ___test_collection: Collection<TestDocument, K>,
+    }
+    DB::<MemoryKV>::new(None)
+        .await
+        .expect_err("db initialization should fail");
+    Ok(())
+}

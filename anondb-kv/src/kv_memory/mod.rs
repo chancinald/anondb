@@ -32,7 +32,7 @@ impl OpaqueItem for MemoryKVItem {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct MemoryKV {
     /// A snapshot for read operations to access during write operations
     tables_snapshot: Arc<

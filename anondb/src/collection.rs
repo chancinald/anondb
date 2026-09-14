@@ -32,6 +32,11 @@ where
         primary_key_index: Index<T>,
         indices: Vec<Index<T>>,
     ) -> Result<Self> {
+        if name.contains(NAME_SEPARATOR) {
+            anyhow::bail!(
+                "collection name \"{name}\" may not contain reserved sequence: \"{NAME_SEPARATOR}\""
+            )
+        }
         Self {
             kv,
             name,

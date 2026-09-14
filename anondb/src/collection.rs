@@ -222,7 +222,7 @@ where
                 let primary_key = (self.serialize_primary_key)(&doc);
                 write_tx.remove(&self.name, &primary_key).await?;
                 for index in self.indices.iter() {
-                    index.delete(&write_tx, &doc).await?;
+                    index.delete(&write_tx, &doc, &primary_key).await?;
                 }
                 self.insert_with_tx(&write_tx, &updated).await?;
             }
@@ -277,7 +277,7 @@ where
 
     pub(crate) async fn query_primary_key<'a>(
         &'a self,
-        tx: impl ReadOperations + RangeReadOperation + 'a,
+        tx: impl ReadOperations + RangeReadOperations + 'a,
         query: <T as Queryable>::DocumentQuery,
         scan_range: GeneralRange<Vec<u8>>,
     ) -> Result<impl futures::Stream<Item = Result<T>> + 'a> {

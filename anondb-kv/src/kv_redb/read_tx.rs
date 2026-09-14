@@ -3,6 +3,7 @@ use std::ops::RangeBounds;
 use std::sync::Arc;
 
 use futures::Stream;
+use futures::TryStreamExt;
 use futures::future::Either;
 
 use super::*;
@@ -127,7 +128,7 @@ fn to_redb_bounds<'a>(
     (map(start), map(end))
 }
 
-impl<'a> RangeReadOperation for RedbReadTransaction<'a> {
+impl<'a> RangeReadOperations for RedbReadTransaction<'a> {
     type Item = RedbItem<'a>;
     async fn range(
         &self,
@@ -140,6 +141,33 @@ impl<'a> RangeReadOperation for RedbReadTransaction<'a> {
                     .range::<&[u8]>(to_redb_bounds(range.start_bound(), range.end_bound()))?
                     .map(|v| Ok(RedbItem::from(v?))),
             ))),
+            None => Ok(Either::Right(futures::stream::empty())),
+        }
+    }
+
+    async fn range_multimap(
+        &self,
+        table: &str,
+        range: impl RangeBounds<Vec<u8>>,
+    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+        match self.read_multimap_table(table).await? {
+            Some(table) => Ok(Either::Left(
+                futures::stream::iter(
+                    table
+                        .range::<&[u8]>(to_redb_bounds(range.start_bound(), range.end_bound()))?
+                        .map(|v| {
+                            let (key, value) = v?;
+                            let key = key.value().to_vec();
+                            Ok::<_, anyhow::Error>(futures::stream::iter(value.into_iter().map(
+                                move |v| {
+                                    let item = v?;
+                                    Ok(RedbItem::from((key.as_slice(), item)))
+                                },
+                            )))
+                        }),
+                )
+                .try_flatten(),
+            )),
             None => Ok(Either::Right(futures::stream::empty())),
         }
     }

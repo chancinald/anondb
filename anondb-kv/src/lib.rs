@@ -15,6 +15,7 @@ pub(crate) use log_ext as log;
 
 use anyhow::Result;
 use futures::Stream;
+use futures::StreamExt;
 
 /// A standard interface for accessing entries in a KV.
 pub trait OpaqueItem {
@@ -23,10 +24,16 @@ pub trait OpaqueItem {
 }
 
 /// A generic key-value store. Assumed to be capable of transactional mutation of key-value collections.
-pub trait KV: Sized + ReadOperations + WriteOperations + Clone {
+pub trait KV:
+    Sized
+    + ReadOperations<Item = <Self as KV>::Item>
+    + RangeReadOperations<Item = <Self as KV>::Item>
+    + WriteOperations<Item = <Self as KV>::Item>
+    + Clone
+{
     type Item: OpaqueItem;
     type ReadTransaction: ReadOperations<Item = <Self as KV>::Item>
-        + RangeReadOperation<Item = <Self as KV>::Item>;
+        + RangeReadOperations<Item = <Self as KV>::Item>;
     type WriteTransaction: WriteTx<Item = <Self as KV>::Item>;
     type Config;
 
@@ -103,13 +110,21 @@ pub trait WriteOperations {
     fn clear_multimap(&self, table: &str) -> impl Future<Output = Result<()>>;
 }
 
-pub trait RangeReadOperation {
+pub trait RangeReadOperations {
     type Item: OpaqueItem;
-    fn range(
+    /// Get a range of entries in a table as an async stream.
+    async fn range(
         &self,
         table: &str,
         range: impl RangeBounds<Vec<u8>>,
-    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item>>>>;
+    ) -> Result<impl Stream<Item = Result<Self::Item>>>;
+
+    /// Get a range of entries in a multimap table as an async stream.
+    async fn range_multimap(
+        &self,
+        table: &str,
+        range: impl RangeBounds<Vec<u8>>,
+    ) -> Result<impl Stream<Item = Result<Self::Item>>>;
 }
 
 pub trait WriteTx: ReadOperations + WriteOperations {

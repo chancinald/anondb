@@ -75,7 +75,7 @@ impl ReadOperations for MemoryKVReadTransaction {
     }
 }
 
-impl RangeReadOperation for MemoryKVReadTransaction {
+impl RangeReadOperations for MemoryKVReadTransaction {
     type Item = MemoryKVItem;
     async fn range(
         &self,
@@ -83,15 +83,35 @@ impl RangeReadOperation for MemoryKVReadTransaction {
         range: impl RangeBounds<Vec<u8>>,
     ) -> Result<impl Stream<Item = Result<Self::Item>>> {
         let Some(table) = self.tables.get(table) else {
-            anyhow::bail!("table not found \"{table}\"")
+            return Ok(Either::Left(futures::stream::empty()));
         };
-        Ok(futures::stream::iter(table.range(range).map(
-            |(key, value)| {
+        Ok(Either::Right(futures::stream::iter(
+            table.range(range).map(|(key, value)| {
                 Ok(MemoryKVItem {
                     key: key.clone(),
                     value: value.clone(),
                 })
-            },
+            }),
+        )))
+    }
+
+    async fn range_multimap(
+        &self,
+        table: &str,
+        range: impl RangeBounds<Vec<u8>>,
+    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+        let Some(table) = self.tables_multi.get(table) else {
+            return Ok(Either::Left(futures::stream::empty()));
+        };
+        Ok(Either::Right(futures::stream::iter(
+            table.range(range).flat_map(|(key, set)| {
+                set.iter().map(|value| {
+                    Ok(MemoryKVItem {
+                        key: key.clone(),
+                        value: value.clone(),
+                    })
+                })
+            }),
         )))
     }
 }

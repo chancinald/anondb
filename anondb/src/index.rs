@@ -79,7 +79,7 @@ where
     /// Accept a set of field keys as lexicographically serialized bytes
     pub async fn query<'a>(
         &'a self,
-        tx: impl ReadOperations + RangeReadOperation + 'a,
+        tx: impl ReadOperations + RangeReadOperations + 'a,
         query: <T as Queryable>::DocumentQuery,
         scan_range: GeneralRange<Vec<u8>>,
     ) -> Result<impl futures::Stream<Item = Result<T>> + 'a> {
@@ -120,16 +120,20 @@ where
         })
     }
 
-    pub(crate) async fn delete(&self, tx: &impl WriteTx, doc: impl Borrow<T>) -> Result<()> {
+    pub(crate) async fn delete(
+        &self,
+        tx: &impl WriteTx,
+        doc: impl Borrow<T>,
+        primary_key: &[u8],
+    ) -> Result<()> {
         let key = (self.serialize_key)(doc.borrow());
-        if self.options.unique {
+        Ok(if self.options.unique {
             let removed_maybe = tx.remove(&self.kv_table_name, key.as_slice()).await?;
             debug_assert!(removed_maybe.is_some(), "index is inconsistent");
         } else {
-            unimplemented!()
-            // tx.insert_multimap(&table_name, key.as_slice(), primary_key)?;
-        }
-        Ok(())
+            tx.remove_multimap_value(&self.kv_table_name, key.as_slice(), primary_key)
+                .await?;
+        })
     }
 
     /// Take a document and a primary key and insert into a collection.
@@ -137,10 +141,10 @@ where
         &self,
         tx: &impl WriteTx,
         doc: impl Borrow<T>,
-        primary_key: &[u8],
+        primary_key: impl AsRef<[u8]>,
     ) -> Result<()> {
         let key = (self.serialize_key)(doc.borrow());
-        if self.options.unique {
+        Ok(if self.options.unique {
             if tx.get(&self.kv_table_name, key.as_slice()).await?.is_some() {
                 anyhow::bail!(
                     "Collection \"{}\" index \"{}\" cannot insert document, uniqueness constraint violated",
@@ -148,12 +152,11 @@ where
                     self.kv_table_name
                 );
             }
-            tx.insert(&self.kv_table_name, key.as_slice(), primary_key)
+            tx.insert(&self.kv_table_name, key.as_slice(), primary_key.as_ref())
                 .await?;
         } else {
-            unimplemented!()
-            // tx.insert_multimap(&table_name, key.as_slice(), primary_key)?;
-        }
-        Ok(())
+            tx.insert_multimap(&self.kv_table_name, key.as_slice(), primary_key.as_ref())
+                .await?;
+        })
     }
 }

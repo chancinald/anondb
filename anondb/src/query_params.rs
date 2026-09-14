@@ -18,44 +18,29 @@ impl GeneralRange<Vec<u8>> {
 
 impl<T: Clone> From<std::ops::Range<T>> for GeneralRange<T> {
     fn from(value: std::ops::Range<T>) -> Self {
-        Self(
-            value.start_bound().map(|v| v.clone()),
-            value.end_bound().map(|v| v.clone()),
-        )
+        Self(value.start_bound().cloned(), value.end_bound().cloned())
     }
 }
 impl<T: Clone> From<std::ops::RangeFrom<T>> for GeneralRange<T> {
     fn from(value: std::ops::RangeFrom<T>) -> Self {
-        Self(
-            value.start_bound().map(|v| v.clone()),
-            value.end_bound().map(|v| v.clone()),
-        )
+        Self(value.start_bound().cloned(), value.end_bound().cloned())
     }
 }
 impl<T: Clone> From<std::ops::RangeTo<T>> for GeneralRange<T> {
     fn from(value: std::ops::RangeTo<T>) -> Self {
-        Self(
-            value.start_bound().map(|v| v.clone()),
-            value.end_bound().map(|v| v.clone()),
-        )
+        Self(value.start_bound().cloned(), value.end_bound().cloned())
     }
 }
 
 impl<T: Clone> From<std::ops::RangeInclusive<T>> for GeneralRange<T> {
     fn from(value: std::ops::RangeInclusive<T>) -> Self {
-        Self(
-            value.start_bound().map(|v| v.clone()),
-            value.end_bound().map(|v| v.clone()),
-        )
+        Self(value.start_bound().cloned(), value.end_bound().cloned())
     }
 }
 
 impl<T: Clone> From<std::ops::RangeToInclusive<T>> for GeneralRange<T> {
     fn from(value: std::ops::RangeToInclusive<T>) -> Self {
-        Self(
-            value.start_bound().map(|v| v.clone()),
-            value.end_bound().map(|v| v.clone()),
-        )
+        Self(value.start_bound().cloned(), value.end_bound().cloned())
     }
 }
 

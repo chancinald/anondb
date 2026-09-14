@@ -218,3 +218,36 @@ impl WriteOperations for MemoryKV {
         Ok(())
     }
 }
+
+impl RangeReadOperations for MemoryKV {
+    type Item = MemoryKVItem;
+    async fn range(
+        &self,
+        table: &str,
+        range: impl RangeBounds<Vec<u8>>,
+    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+        Ok(async_stream::try_stream! {
+            let tx = self.read_tx().await?;
+            let out = tx.range(table, range).await?;
+            let mut stream = std::pin::pin!(out);
+            while let Some(doc) = stream.next().await.transpose()? {
+                yield doc;
+            }
+        })
+    }
+
+    async fn range_multimap(
+        &self,
+        table: &str,
+        range: impl RangeBounds<Vec<u8>>,
+    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+        Ok(async_stream::try_stream! {
+            let tx = self.read_tx().await?;
+            let out = tx.range_multimap(table, range).await?;
+            let mut stream = std::pin::pin!(out);
+            while let Some(doc) = stream.next().await.transpose()? {
+                yield doc;
+            }
+        })
+    }
+}

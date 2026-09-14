@@ -131,3 +131,40 @@ macro_rules! all_read_write_impls {
         }
     };
 }
+
+#[macro_export]
+macro_rules! all_range_read_impls {
+    ($fn_name:ident) => {
+        paste::paste! {
+            #[tokio::test]
+            async fn [<memory_ $fn_name>]() -> Result<()> {
+                let kv = MemoryKV::new(None).await?;
+                $fn_name(&kv).await?;
+                Ok(())
+            }
+
+            #[tokio::test]
+            async fn [<memory_read_tx_ $fn_name>]() -> Result<()> {
+                let kv = MemoryKV::new(None).await?;
+                let read = kv.read_tx().await?;
+                $fn_name(&read).await?;
+                Ok(())
+            }
+
+            #[tokio::test]
+            async fn [<redb_ $fn_name>]() -> Result<()> {
+                let kv = RedbKV::new(None).await?;
+                $fn_name(&kv).await?;
+                Ok(())
+            }
+
+            #[tokio::test]
+            async fn [<redb_read_tx_ $fn_name>]() -> Result<()> {
+                let kv = RedbKV::new(None).await?;
+                let read = kv.read_tx().await?;
+                $fn_name(&read).await?;
+                Ok(())
+            }
+        }
+    };
+}

@@ -131,11 +131,13 @@ impl From<&str> for Param {
         Param::eq(value)
     }
 }
+
 impl From<&'static str> for ParamTyped<&str> {
     fn from(value: &'static str) -> Self {
         ParamTyped::Eq(value)
     }
 }
+
 impl From<&str> for ParamTyped<String> {
     fn from(value: &str) -> Self {
         ParamTyped::Eq(value.into())

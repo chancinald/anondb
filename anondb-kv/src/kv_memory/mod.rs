@@ -66,7 +66,7 @@ impl MemoryKV {
 }
 
 impl KV for MemoryKV {
-    type Item = MemoryKVItem;
+    type Item<'tx> = MemoryKVItem;
     type ReadTransaction = MemoryKVReadTransaction;
     type WriteTransaction = MemoryKVWriteTransaction;
     type Config = ();
@@ -115,7 +115,7 @@ impl KV for MemoryKV {
 }
 
 impl ReadOperations for MemoryKV {
-    type Item = MemoryKVItem;
+    type Item<'tx> = MemoryKVItem;
     async fn count(&self, table: &str) -> Result<u64> {
         let tx = self.read_tx().await?;
         Ok(tx.count(table).await?)
@@ -138,7 +138,7 @@ impl ReadOperations for MemoryKV {
 }
 
 impl WriteOperations for MemoryKV {
-    type Item = MemoryKVItem;
+    type Item<'tx> = MemoryKVItem;
     async fn clear(&self, table: &str) -> Result<()> {
         let tx = self.write_tx().await?;
         tx.clear(table).await?;
@@ -219,12 +219,12 @@ impl WriteOperations for MemoryKV {
 }
 
 impl RangeReadOperations for MemoryKV {
-    type Item = MemoryKVItem;
+    type Item<'tx> = MemoryKVItem;
     async fn range(
         &self,
         table: &str,
         range: impl RangeBounds<Vec<u8>>,
-    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+    ) -> Result<impl Stream<Item = Result<Self::Item<'_>>>> {
         Ok(async_stream::try_stream! {
             let tx = self.read_tx().await?;
             let out = tx.range(table, range).await?;
@@ -239,7 +239,7 @@ impl RangeReadOperations for MemoryKV {
         &self,
         table: &str,
         range: impl RangeBounds<Vec<u8>>,
-    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+    ) -> Result<impl Stream<Item = Result<Self::Item<'_>>>> {
         Ok(async_stream::try_stream! {
             let tx = self.read_tx().await?;
             let out = tx.range_multimap(table, range).await?;
@@ -254,7 +254,7 @@ impl RangeReadOperations for MemoryKV {
         &self,
         table: &str,
         key: &[u8],
-    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+    ) -> Result<impl Stream<Item = Result<Self::Item<'_>>>> {
         Ok(async_stream::try_stream! {
             let tx = self.read_tx().await?;
             let out = tx.get_multimap(table, key).await?;

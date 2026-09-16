@@ -9,7 +9,7 @@ pub struct MemoryKVReadTransaction {
 }
 
 impl ReadOperations for MemoryKVReadTransaction {
-    type Item = MemoryKVItem;
+    type Item<'tx> = MemoryKVItem;
     async fn count(&self, table: &str) -> Result<u64> {
         match self.tables.get(table) {
             Some(table) => Ok(table.size() as u64),
@@ -52,12 +52,12 @@ impl ReadOperations for MemoryKVReadTransaction {
 }
 
 impl RangeReadOperations for MemoryKVReadTransaction {
-    type Item = MemoryKVItem;
+    type Item<'tx> = MemoryKVItem;
     async fn range(
         &self,
         table: &str,
         range: impl RangeBounds<Vec<u8>>,
-    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+    ) -> Result<impl Stream<Item = Result<Self::Item<'_>>>> {
         let Some(table) = self.tables.get(table) else {
             return Ok(Either::Left(futures::stream::empty()));
         };
@@ -75,7 +75,7 @@ impl RangeReadOperations for MemoryKVReadTransaction {
         &self,
         table: &str,
         range: impl RangeBounds<Vec<u8>>,
-    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+    ) -> Result<impl Stream<Item = Result<Self::Item<'_>>>> {
         let Some(table) = self.tables_multi.get(table) else {
             return Ok(Either::Left(futures::stream::empty()));
         };
@@ -95,7 +95,7 @@ impl RangeReadOperations for MemoryKVReadTransaction {
         &self,
         table: &str,
         key: &[u8],
-    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+    ) -> Result<impl Stream<Item = Result<Self::Item<'_>>>> {
         Ok(
             if let Some(table) = self.tables_multi.get(table)
                 && let Some(entry) = table.get(key)

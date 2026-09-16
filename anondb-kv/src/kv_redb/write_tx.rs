@@ -1,20 +1,19 @@
 use super::*;
 
-pub struct RedbWriteTransaction<'a> {
+pub struct RedbWriteTransaction {
     pub write: redb::WriteTransaction,
-    pub _phantom: PhantomData<&'a ()>,
 }
 
-impl<'a> WriteTx for RedbWriteTransaction<'a> {
-    type Item = RedbItem<'a>;
+impl WriteTx for RedbWriteTransaction {
+    type Item<'tx> = RedbItem<'tx>;
     async fn commit(self) -> Result<()> {
         self.write.commit()?;
         Ok(())
     }
 }
 
-impl<'a> WriteOperations for RedbWriteTransaction<'a> {
-    type Item = RedbItem<'a>;
+impl WriteOperations for RedbWriteTransaction {
+    type Item<'tx> = RedbItem<'tx>;
     async fn remove(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let mut table = self.write.open_table(tabledef(table))?;
         Ok(table.remove(key)?.map(|v| v.value().to_vec()))
@@ -60,9 +59,12 @@ impl<'a> WriteOperations for RedbWriteTransaction<'a> {
     }
 }
 
-impl<'a> ReadOperations for RedbWriteTransaction<'a> {
-    type Item = RedbItem<'a>;
-    async fn get(&self, table: &str, key: &[u8]) -> Result<Option<Self::Item>> {
+impl ReadOperations for RedbWriteTransaction {
+    type Item<'tx>
+        = RedbItem<'tx>
+    where
+        Self: 'tx;
+    async fn get(&self, table: &str, key: &[u8]) -> Result<Option<Self::Item<'_>>> {
         let table = self.write.open_table(tabledef(table))?;
         Ok(table
             .get(key)?

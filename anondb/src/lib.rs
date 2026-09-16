@@ -26,7 +26,7 @@ use test::*;
 
 use anondb_kv;
 
-pub(crate) use anondb_kv::*;
+pub use anondb_kv::*;
 pub use anondb_macros::AnonDB;
 pub use anondb_macros::Document;
 

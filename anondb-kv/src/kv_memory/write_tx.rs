@@ -30,7 +30,7 @@ impl MemoryKVWriteTransaction {
 }
 
 impl ReadOperations for MemoryKVWriteTransaction {
-    type Item = MemoryKVItem;
+    type Item<'tx> = MemoryKVItem;
     async fn count(&self, table: &str) -> Result<u64> {
         match self.tables_snapshot.lock().await.0.get(table) {
             Some(table) => Ok(table.size() as u64),
@@ -79,7 +79,7 @@ impl ReadOperations for MemoryKVWriteTransaction {
 }
 
 impl WriteOperations for MemoryKVWriteTransaction {
-    type Item = MemoryKVItem;
+    type Item<'tx> = MemoryKVItem;
     async fn clear(&self, table: &str) -> Result<()> {
         if self.tables_snapshot.lock().await.0.remove(table).is_none() {
             log::warn!("table \"{table}\" not found");
@@ -165,7 +165,7 @@ impl WriteOperations for MemoryKVWriteTransaction {
 }
 
 impl WriteTx for MemoryKVWriteTransaction {
-    type Item = MemoryKVItem;
+    type Item<'tx> = MemoryKVItem;
     async fn commit(mut self) -> Result<()> {
         let snapshot = self.tables_snapshot.into_inner();
         *self.tables_lock = snapshot.0;

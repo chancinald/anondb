@@ -8,15 +8,14 @@ use futures::future::Either;
 
 use super::*;
 
-pub struct RedbReadTransaction<'a> {
+pub struct RedbReadTransaction {
     pub read: redb::ReadTransaction,
     pub tables: RwLock<HashMap<String, Arc<ReadOnlyTable<&'static [u8], &'static [u8]>>>>,
     pub tables_multimap:
         RwLock<HashMap<String, Arc<ReadOnlyMultimapTable<&'static [u8], &'static [u8]>>>>,
-    pub _phantom: PhantomData<&'a ()>,
 }
 
-impl<'a> RedbReadTransaction<'a> {
+impl RedbReadTransaction {
     pub async fn read_table(
         &self,
         name: &str,
@@ -24,15 +23,8 @@ impl<'a> RedbReadTransaction<'a> {
         if let Some(table) = self.tables.read().await.get(name) {
             return Ok(Some(table.clone()));
         }
-        let table = match self.read.open_table(tabledef(name)) {
-            Ok(t) => t,
-            Err(e) => {
-                if matches!(e, TableError::TableDoesNotExist(_)) {
-                    return Ok(None);
-                } else {
-                    return Err(anyhow::anyhow!(e));
-                }
-            }
+        let Some(table) = read_table(&self.read, name)? else {
+            return Ok(None);
         };
         let table = Arc::new(table);
         self.tables.write().await.insert(name.into(), table.clone());
@@ -46,15 +38,8 @@ impl<'a> RedbReadTransaction<'a> {
         if let Some(table) = self.tables_multimap.read().await.get(name) {
             return Ok(Some(table.clone()));
         }
-        let table = match self.read.open_multimap_table(tabledef_multimap(name)) {
-            Ok(t) => t,
-            Err(e) => {
-                if matches!(e, TableError::TableDoesNotExist(_)) {
-                    return Ok(None);
-                } else {
-                    return Err(anyhow::anyhow!(e));
-                }
-            }
+        let Some(table) = read_multimap_table(&self.read, name)? else {
+            return Ok(None);
         };
         let table = Arc::new(table);
         self.tables_multimap
@@ -65,9 +50,12 @@ impl<'a> RedbReadTransaction<'a> {
     }
 }
 
-impl<'a> ReadOperations for RedbReadTransaction<'a> {
-    type Item = RedbItem<'a>;
-    async fn get(&self, table: &str, key: &[u8]) -> Result<Option<Self::Item>> {
+impl ReadOperations for RedbReadTransaction {
+    type Item<'tx>
+        = RedbItem<'tx>
+    where
+        Self: 'tx;
+    async fn get(&self, table: &str, key: &[u8]) -> Result<Option<Self::Item<'_>>> {
         match self.read_table(table).await? {
             Some(table) => Ok(table.get(key)?.map(|v| (key, v).into())),
             None => Ok(None),
@@ -96,27 +84,16 @@ impl<'a> ReadOperations for RedbReadTransaction<'a> {
     }
 }
 
-use std::ops::Bound;
-
-fn to_redb_bounds<'a>(
-    start: Bound<&'a Vec<u8>>,
-    end: Bound<&'a Vec<u8>>,
-) -> (Bound<&'a [u8]>, Bound<&'a [u8]>) {
-    let map = |b: Bound<&'a Vec<u8>>| match b {
-        Bound::Included(v) => Bound::Included(v.as_slice()),
-        Bound::Excluded(v) => Bound::Excluded(v.as_slice()),
-        Bound::Unbounded => Bound::Unbounded,
-    };
-    (map(start), map(end))
-}
-
-impl<'a> RangeReadOperations for RedbReadTransaction<'a> {
-    type Item = RedbItem<'a>;
+impl RangeReadOperations for RedbReadTransaction {
+    type Item<'tx>
+        = RedbItem<'tx>
+    where
+        Self: 'tx;
     async fn range(
         &self,
         table: &str,
         range: impl RangeBounds<Vec<u8>>,
-    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+    ) -> Result<impl Stream<Item = Result<Self::Item<'_>>>> {
         match self.read_table(table).await? {
             Some(table) => Ok(Either::Left(futures::stream::iter(
                 table
@@ -131,7 +108,7 @@ impl<'a> RangeReadOperations for RedbReadTransaction<'a> {
         &self,
         table: &str,
         range: impl RangeBounds<Vec<u8>>,
-    ) -> Result<impl Stream<Item = Result<Self::Item>>> {
+    ) -> Result<impl Stream<Item = Result<Self::Item<'_>>>> {
         match self.read_multimap_table(table).await? {
             Some(table) => Ok(Either::Left(
                 futures::stream::iter(
@@ -154,11 +131,11 @@ impl<'a> RangeReadOperations for RedbReadTransaction<'a> {
         }
     }
 
-    async fn get_multimap<'b>(
-        &'b self,
+    async fn get_multimap(
+        &self,
         table: &str,
         key: &[u8],
-    ) -> Result<impl Stream<Item = Result<Self::Item>> + 'b> {
+    ) -> Result<impl Stream<Item = Result<Self::Item<'_>>>> {
         let Some(table) = self.read_multimap_table(table).await? else {
             return Ok(Either::Left(futures::stream::empty()));
         };

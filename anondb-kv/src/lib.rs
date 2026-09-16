@@ -25,15 +25,18 @@ pub trait OpaqueItem {
 /// A generic key-value store. Assumed to be capable of transactional mutation of key-value collections.
 pub trait KV:
     Sized
-    + ReadOperations<Item = <Self as KV>::Item>
-    + RangeReadOperations<Item = <Self as KV>::Item>
-    + WriteOperations<Item = <Self as KV>::Item>
+    + for<'tx> ReadOperations<Item<'tx> = <Self as KV>::Item<'tx>>
+    + for<'tx> WriteOperations<Item<'tx> = <Self as KV>::Item<'tx>>
+    + for<'tx> RangeReadOperations<Item<'tx> = <Self as KV>::Item<'tx>>
     + Clone
+    + 'static
 {
-    type Item: OpaqueItem;
-    type ReadTransaction: ReadOperations<Item = <Self as KV>::Item>
-        + RangeReadOperations<Item = <Self as KV>::Item>;
-    type WriteTransaction: WriteTx<Item = <Self as KV>::Item>;
+    type Item<'tx>: OpaqueItem
+    where
+        Self: 'tx;
+    type ReadTransaction: for<'tx> ReadOperations<Item<'tx> = <Self as KV>::Item<'tx>>
+        + for<'tx> RangeReadOperations<Item<'tx> = <Self as KV>::Item<'tx>>;
+    type WriteTransaction: for<'tx> WriteTx<Item<'tx> = <Self as KV>::Item<'tx>>;
     type Config;
 
     /// Initialize a kv persisted to a path. What path is (directory, file, etc) is determined by
@@ -50,12 +53,14 @@ pub trait KV:
 }
 
 pub trait ReadOperations {
-    type Item: OpaqueItem;
+    type Item<'tx>: OpaqueItem
+    where
+        Self: 'tx;
     /// Determine the number of keys present in a table.
     fn count(&self, table: &str) -> impl Future<Output = Result<u64>>;
 
     /// Retrieve the value associated to a key for a table. Must be `O(1)`.
-    fn get(&self, table: &str, key: &[u8]) -> impl Future<Output = Result<Option<Self::Item>>>;
+    fn get(&self, table: &str, key: &[u8]) -> impl Future<Output = Result<Option<Self::Item<'_>>>>;
 
     /// Retrieve the number of non-empty keys in a multimap table.
     fn count_multimap(&self, table: &str) -> impl Future<Output = Result<u64>>;
@@ -65,7 +70,7 @@ pub trait ReadOperations {
 }
 
 pub trait WriteOperations {
-    type Item: OpaqueItem;
+    type Item<'tx>: OpaqueItem;
     /// Insert a key for a table and return the old value if it exists. Must be `O(1)`.
     fn insert(
         &self,
@@ -106,30 +111,32 @@ pub trait WriteOperations {
 }
 
 pub trait RangeReadOperations {
-    type Item: OpaqueItem;
+    type Item<'tx>: OpaqueItem
+    where
+        Self: 'tx;
     /// Get a range of entries in a table as an async stream.
     fn range(
         &self,
         table: &str,
         range: impl RangeBounds<Vec<u8>>,
-    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item>>>>;
+    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item<'_>>>>>;
 
     /// Get a range of entries in a multimap table as an async stream.
     fn range_multimap(
         &self,
         table: &str,
         range: impl RangeBounds<Vec<u8>>,
-    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item>>>>;
+    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item<'_>>>>>;
 
     /// Retrieve all values associated with a key in a multimap collection.
-    fn get_multimap<'a>(
-        &'a self,
-        table: &'a str,
-        key: &'a [u8],
-    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item>> + 'a>>;
+    fn get_multimap(
+        &self,
+        table: &str,
+        key: &[u8],
+    ) -> impl Future<Output = Result<impl Stream<Item = Result<Self::Item<'_>>>>>;
 }
 
 pub trait WriteTx: ReadOperations + WriteOperations {
-    type Item: OpaqueItem;
+    type Item<'tx>: OpaqueItem;
     fn commit(self) -> impl Future<Output = Result<()>>;
 }

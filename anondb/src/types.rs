@@ -32,13 +32,15 @@ impl<T: ValidDBType> ValidDBType for Option<T> {
             .as_str()
     }
 }
-impl<T: ValidDBType> sealed::Sealed for Vec<T> {}
-impl<T: ValidDBType> ValidDBType for Vec<T> {
+
+impl sealed::Sealed for Vec<u8> {}
+impl ValidDBType for Vec<u8> {
     fn type_name() -> &'static str {
-        use std::sync::OnceLock;
-        static NAME: OnceLock<String> = OnceLock::new();
-        NAME.get_or_init(|| format!("Vec<{}>", T::type_name()))
-            .as_str()
+        "Vec<u8>"
+        // use std::sync::OnceLock;
+        // static NAME: OnceLock<String> = OnceLock::new();
+        // NAME.get_or_init(|| format!("Vec<{}>", T::type_name()))
+        //     .as_str()
     }
 }
 

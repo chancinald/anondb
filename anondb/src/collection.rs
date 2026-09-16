@@ -257,7 +257,7 @@ where
     where
         B: Borrow<T>,
     {
-        let tx = self.kv().write_tx().await?;
+        let tx = self.kv.write_tx().await?;
         for item in document_iter {
             self.insert_with_tx(&tx, item).await?;
         }
@@ -267,7 +267,7 @@ where
 
     /// Insert a document into a collection. All relevant indices will be updated.
     pub async fn insert(&self, document: impl Borrow<T>) -> Result<()> {
-        let tx = self.kv().write_tx().await?;
+        let tx = self.kv.write_tx().await?;
         self.insert_with_tx(&tx, document).await?;
         tx.commit().await?;
         Ok(())
@@ -324,7 +324,7 @@ where
     ) -> Result<impl futures::Stream<Item = Result<T>>> {
         let fields = query.fields();
         let index_maybe = self.select_index(&fields)?;
-        let tx = self.kv().read_tx().await?;
+        let tx = self.kv.read_tx().await?;
         if let Some(index) = index_maybe {
             let scan_range = query.compute_scan_range(index.field_names());
             Ok(Either::Left(index.query(tx, query, scan_range).await?))

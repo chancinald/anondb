@@ -223,7 +223,7 @@ impl RangeReadOperations for MemoryKV {
     async fn range(
         &self,
         table: &str,
-        range: impl RangeBounds<Vec<u8>>,
+        range: impl RangeBounds<Vec<u8>> + Send + Sync,
     ) -> Result<impl Stream<Item = Result<Self::Item<'_>>>> {
         Ok(async_stream::try_stream! {
             let tx = self.read_tx().await?;
@@ -238,7 +238,7 @@ impl RangeReadOperations for MemoryKV {
     async fn range_multimap(
         &self,
         table: &str,
-        range: impl RangeBounds<Vec<u8>>,
+        range: impl RangeBounds<Vec<u8>> + Send + Sync,
     ) -> Result<impl Stream<Item = Result<Self::Item<'_>>>> {
         Ok(async_stream::try_stream! {
             let tx = self.read_tx().await?;

@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::sync::Arc;
 
 use anyhow::Result;
 use futures::StreamExt;
@@ -24,7 +25,7 @@ where
     /// The field names of the document type along with the byte length (if constant)
     pub(crate) field_names: Vec<(String, LexStats)>,
     /// Take a document of type `T` and serialize it into a lexicographically sortable key
-    pub(crate) serialize_key: Box<fn(&T) -> Vec<u8>>,
+    pub(crate) serialize_key: Arc<fn(&T) -> Vec<u8>>,
     /// Options for the index
     options: IndexOptions,
     kv_table_name: String,
@@ -57,7 +58,7 @@ where
         Self {
             collection_name,
             field_names,
-            serialize_key: Box::new(serialize),
+            serialize_key: Arc::new(serialize),
             options,
             kv_table_name,
         }
@@ -108,7 +109,7 @@ where
         tx: impl ReadOperations + RangeReadOperations + 'a,
         query: <T as Queryable>::DocumentQuery,
         scan_range: GeneralRange<Vec<u8>>,
-    ) -> Result<impl futures::Stream<Item = Result<T>> + 'a> {
+    ) -> Result<impl futures::Stream<Item = Result<T>> + Send + Sync + 'a> {
         Ok(async_stream::try_stream! {
             let out = tx.range(&self.kv_table_name, scan_range).await?;
             let mut stream = std::pin::pin!(out);
@@ -149,7 +150,7 @@ where
     pub(crate) async fn delete(
         &self,
         tx: &impl WriteTx,
-        doc: impl Borrow<T>,
+        doc: impl Borrow<T> + Send + Sync,
         primary_key: &[u8],
     ) -> Result<()> {
         let key = (self.serialize_key)(doc.borrow());
@@ -166,8 +167,8 @@ where
     pub(crate) async fn insert(
         &self,
         tx: &impl WriteTx,
-        doc: impl Borrow<T>,
-        primary_key: impl AsRef<[u8]>,
+        doc: impl Borrow<T> + Send + Sync,
+        primary_key: impl AsRef<[u8]> + Send + Sync,
     ) -> Result<()> {
         let key = (self.serialize_key)(doc.borrow());
         Ok(if self.options.unique {

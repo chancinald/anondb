@@ -31,6 +31,7 @@ pub(crate) const PREFIX: &'static str = "";
 //     }
 // }
 
+#[allow(unused_macros)]
 macro_rules! warn_ {
     ($($input:expr),*) => {
         #[cfg(test)]
@@ -47,6 +48,7 @@ macro_rules! warn_ {
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! error {
     ($($input:expr),*) => {
         #[cfg(test)]
@@ -62,6 +64,7 @@ macro_rules! error {
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! info {
     ($($input:expr),*) => {
         #[cfg(test)]
@@ -77,6 +80,7 @@ macro_rules! info {
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! debug {
     ($($input:expr),*) => {
         #[cfg(test)]
@@ -87,7 +91,11 @@ macro_rules! debug {
     };
 }
 
+#[allow(unused_imports)]
 pub(crate) use debug;
+#[allow(unused_imports)]
 pub(crate) use error;
+#[allow(unused_imports)]
 pub(crate) use info;
+#[allow(unused_imports)]
 pub(crate) use warn_ as warn;

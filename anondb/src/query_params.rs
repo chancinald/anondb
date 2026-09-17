@@ -54,7 +54,7 @@ impl<T> RangeBounds<T> for GeneralRange<T> {
 }
 
 #[derive(Debug, Clone)]
-pub enum ParamTyped<T: PartialEq + PartialOrd> {
+pub enum ParamTyped<T> {
     Eq(T),
     Neq(T),
     Range(GeneralRange<T>),
@@ -76,19 +76,19 @@ impl<T: PartialEq + PartialOrd> ParamTyped<T> {
     }
 }
 
-impl<T: PartialEq + PartialOrd> ParamTyped<T> {
+impl<T> ParamTyped<T> {
     pub fn typed(_v: &T, some: impl Into<Self>) -> Self {
         some.into()
     }
 }
 
-impl<T: SerializeLexicographic + PartialEq + PartialOrd> Into<Param> for ParamTyped<T> {
+impl<T: SerializeLexicographic> Into<Param> for ParamTyped<T> {
     fn into(self) -> Param {
         (&self).into()
     }
 }
 
-impl<T: SerializeLexicographic + PartialEq + PartialOrd> Into<Param> for &ParamTyped<T> {
+impl<T: SerializeLexicographic> Into<Param> for &ParamTyped<T> {
     fn into(self) -> Param {
         match self {
             ParamTyped::Eq(v) => Param::Eq(v.serialize_lex()),
@@ -99,18 +99,6 @@ impl<T: SerializeLexicographic + PartialEq + PartialOrd> Into<Param> for &ParamT
             )),
             ParamTyped::In(v) => Param::In(v.into_iter().map(|v| v.serialize_lex()).collect()),
             ParamTyped::Nin(v) => Param::Nin(v.into_iter().map(|v| v.serialize_lex()).collect()),
-        }
-    }
-}
-
-impl Into<Param> for &ParamTyped<Vec<u8>> {
-    fn into(self) -> Param {
-        match self {
-            ParamTyped::Eq(v) => Param::Eq(v.to_vec()),
-            ParamTyped::Neq(v) => Param::Neq(v.to_vec()),
-            ParamTyped::Range(v) => Param::Range(v.to_owned()),
-            ParamTyped::In(v) => Param::In(v.clone()),
-            ParamTyped::Nin(v) => Param::Nin(v.clone()),
         }
     }
 }

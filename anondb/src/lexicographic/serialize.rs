@@ -1,10 +1,19 @@
 use std::marker::PhantomData;
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct LexStats {
+    pub min: Vec<u8>,
+    pub max: Option<Vec<u8>>,
+    pub fixed_width: Option<u32>,
+}
+
 /// Allow a type to be serialized to lexicographically comparable bytes
 pub trait SerializeLexicographic {
     fn serialize_lex(&self) -> Vec<u8>;
     fn min() -> Vec<u8>;
-    fn max() -> Option<Vec<u8>>;
+    fn max() -> Option<Vec<u8>> {
+        None
+    }
     fn fixed_width() -> Option<u32> {
         None
     }
@@ -17,43 +26,6 @@ pub trait SerializeLexicographic {
     }
 }
 
-impl<T: SerializeLexicographic> SerializeLexicographic for PhantomData<T> {
-    fn serialize_lex(&self) -> Vec<u8> {
-        unreachable!()
-    }
-    fn min() -> Vec<u8> {
-        T::min()
-    }
-    fn max() -> Option<Vec<u8>> {
-        T::max()
-    }
-    fn fixed_width() -> Option<u32> {
-        T::fixed_width()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct LexStats {
-    pub min: Vec<u8>,
-    pub max: Option<Vec<u8>>,
-    pub fixed_width: Option<u32>,
-}
-
-/// Unit type for compiler support. Should never be used at runtime.
-impl SerializeLexicographic for () {
-    fn serialize_lex(&self) -> Vec<u8> {
-        unreachable!()
-    }
-
-    fn min() -> Vec<u8> {
-        unreachable!()
-    }
-
-    fn max() -> Option<Vec<u8>> {
-        unreachable!()
-    }
-}
-
 impl<T: SerializeLexicographic> SerializeLexicographic for Option<T> {
     fn serialize_lex(&self) -> Vec<u8> {
         match self {
@@ -63,71 +35,11 @@ impl<T: SerializeLexicographic> SerializeLexicographic for Option<T> {
     }
 
     fn min() -> Vec<u8> {
-        vec![vec![0x00], T::min()].concat()
+        vec![0x00]
     }
 
     fn max() -> Option<Vec<u8>> {
         T::max().map(|v| vec![vec![0x01], v].concat())
-    }
-
-    fn fixed_width() -> Option<u32> {
-        T::fixed_width().map(|v| v + 1)
-    }
-}
-
-impl SerializeLexicographic for String {
-    fn serialize_lex(&self) -> Vec<u8> {
-        vec![self.as_bytes().to_vec(), vec![0x00]].concat()
-    }
-
-    fn min() -> Vec<u8> {
-        vec![0x00]
-    }
-
-    fn max() -> Option<Vec<u8>> {
-        None
-    }
-}
-
-impl SerializeLexicographic for &String {
-    fn serialize_lex(&self) -> Vec<u8> {
-        vec![self.as_bytes().to_vec(), vec![0x00]].concat()
-    }
-
-    fn min() -> Vec<u8> {
-        vec![0x00]
-    }
-
-    fn max() -> Option<Vec<u8>> {
-        None
-    }
-}
-
-impl SerializeLexicographic for &str {
-    fn serialize_lex(&self) -> Vec<u8> {
-        vec![self.as_bytes().to_vec(), vec![0x00]].concat()
-    }
-
-    fn min() -> Vec<u8> {
-        vec![0x00]
-    }
-
-    fn max() -> Option<Vec<u8>> {
-        None
-    }
-}
-
-impl SerializeLexicographic for &&str {
-    fn serialize_lex(&self) -> Vec<u8> {
-        vec![self.as_bytes().to_vec(), vec![0x00]].concat()
-    }
-
-    fn min() -> Vec<u8> {
-        vec![0x00]
-    }
-
-    fn max() -> Option<Vec<u8>> {
-        None
     }
 }
 
@@ -142,6 +54,48 @@ impl SerializeLexicographic for bool {
 
     fn max() -> Option<Vec<u8>> {
         Some(vec![0x01])
+    }
+}
+
+mod sealed {
+    use super::SerializeLexicographic;
+
+    trait ToBytes {
+        fn to_bytes(self) -> Vec<u8>;
+    }
+
+    impl ToBytes for String {
+        fn to_bytes(self) -> Vec<u8> {
+            self.into_bytes()
+        }
+    }
+
+    impl ToBytes for &String {
+        fn to_bytes(self) -> Vec<u8> {
+            self.as_bytes().to_vec()
+        }
+    }
+
+    impl ToBytes for &str {
+        fn to_bytes(self) -> Vec<u8> {
+            self.as_bytes().to_vec()
+        }
+    }
+
+    impl ToBytes for Vec<u8> {
+        fn to_bytes(self) -> Vec<u8> {
+            self
+        }
+    }
+
+    impl<T: ToBytes + Clone> SerializeLexicographic for T {
+        fn serialize_lex(&self) -> Vec<u8> {
+            vec![self.clone().to_bytes(), vec![0x00]].concat()
+        }
+
+        fn min() -> Vec<u8> {
+            vec![0x00]
+        }
     }
 }
 
@@ -217,6 +171,36 @@ impl<const N: usize> SerializeLexicographic for [u8; N] {
 
     fn fixed_width() -> Option<u32> {
         Some(N as u32)
+    }
+}
+
+impl<T: SerializeLexicographic> SerializeLexicographic for PhantomData<T> {
+    fn serialize_lex(&self) -> Vec<u8> {
+        unreachable!()
+    }
+    fn min() -> Vec<u8> {
+        T::min()
+    }
+    fn max() -> Option<Vec<u8>> {
+        T::max()
+    }
+    fn fixed_width() -> Option<u32> {
+        T::fixed_width()
+    }
+}
+
+/// Unit type for compiler support. Should never be used at runtime.
+impl SerializeLexicographic for () {
+    fn serialize_lex(&self) -> Vec<u8> {
+        unreachable!()
+    }
+
+    fn min() -> Vec<u8> {
+        unreachable!()
+    }
+
+    fn max() -> Option<Vec<u8>> {
+        unreachable!()
     }
 }
 

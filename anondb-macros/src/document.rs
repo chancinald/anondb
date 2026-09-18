@@ -31,8 +31,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 let fn_name = meta.value()?.parse::<syn::Path>()?;
                 migrations_fn_maybe = Some(quote! {
                     fn migrations() -> &'static [fn(
-                        Vec<(String, rmpv::Value)>,
-                    ) -> Result<Vec<(String, rmpv::Value)>, MigrationError>] {
+                        Vec<(String, #crate_name::rmpv::Value)>,
+                    ) -> Result<Vec<(String, #crate_name::rmpv::Value)>, #crate_name::MigrationError>] {
                         #fn_name ()
                     }
                 });
@@ -61,7 +61,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         let field_name = f.ident.clone().unwrap();
         let field_type = f.ty.clone();
         quote! {
-            (stringify!(#field_name).to_string(), <#field_type as ValidDBType>::type_name().to_string()),
+            (stringify!(#field_name).to_string(), <#field_type as #crate_name::ValidDBType>::type_name().to_string()),
         }
     });
 
@@ -141,7 +141,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         impl #crate_name::Query for #impl_generics #query_struct_name #ty_generics #where_clause {
             /// Get a vector containing the fields that have been set.
-            fn fields(&self) -> Vec<(&'static str, Param)> {
+            fn fields(&self) -> Vec<(&'static str, #crate_name::Param)> {
                 let mut out = Vec::with_capacity(#field_count);
                 #(#set_fields)*
                 out
@@ -179,7 +179,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 }).as_ref()
             }
 
-            fn from_tuple(tuple: Vec<(String, rmpv::Value)>) -> Self {
+            fn from_tuple(tuple: Vec<(String, #crate_name::rmpv::Value)>) -> Self {
                 assert_eq!(tuple.len(), Self::field_types().len(), "document bad tuple length");
                 Self {
                     #(#from_tuple)*

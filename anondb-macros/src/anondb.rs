@@ -28,12 +28,12 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
     // collect primary key, indices, and document type for each field
     let mut field_meta = HashMap::<Ident, FieldMeta>::default();
-    for field in fields {
-        let (primary_key_index, indices) = parse_attributes(field)?;
-        let field_ident = field.ident.clone().expect("expected field ident to exist");
+    for field in fields.into_iter() {
         let doc_generic = get_first_generic(&field.ty)
             .expect("expected field type to have a generic argument")
             .clone();
+        let field_ident = field.ident.clone().expect("expected field ident to exist");
+        let (primary_key_index, indices) = parse_attributes(field)?;
         field_meta.insert(
             field_ident,
             FieldMeta {
@@ -104,10 +104,10 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 }
 
 /// For all the collections in the db, extract primary_key and index attributes.
-fn parse_attributes(field: &Field) -> Result<(IndexDef, Vec<IndexDef>)> {
+fn parse_attributes(field: Field) -> Result<(IndexDef, Vec<IndexDef>)> {
     let mut primary_key_maybe: Option<IndexDef> = None;
     let mut indices = Vec::default();
-    for attr in &field.attrs {
+    for attr in field.attrs.iter() {
         if !attr.path().is_ident("anondb") {
             continue;
         }
@@ -129,7 +129,7 @@ fn parse_attributes(field: &Field) -> Result<(IndexDef, Vec<IndexDef>)> {
     }
     let primary_key = primary_key_maybe.ok_or_else(|| {
         Error::new_spanned(
-            field,
+            &field,
             format!(
                 "AnonDB collection \"{}\" does not have a primary key specified. You may do so with #[anondb(primary_key = field_name)]",
                 field.ident.clone().unwrap()

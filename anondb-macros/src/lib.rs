@@ -18,7 +18,7 @@ pub fn anondb_derive(input: TokenStream) -> TokenStream {
     }
 }
 
-#[proc_macro_derive(Document, attributes(document))]
+#[proc_macro_derive(Document, attributes(serde, document))]
 pub fn document_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     match document::derive(input) {
@@ -36,12 +36,12 @@ fn crate_name() -> proc_macro2::TokenStream {
 }
 
 /// Parse the derive invocation, the struct, and extract the fields.
-fn parse_struct_and_fields<'a>(
-    input: &'a DeriveInput,
+fn parse_struct_and_fields(
+    input: &DeriveInput,
     macro_name: &str,
-) -> Result<&'a Punctuated<Field, Comma>> {
+) -> Result<Punctuated<Field, Comma>> {
     // Only allow structs
-    let data_struct = match &input.data {
+    let data_struct = match input.clone().data {
         Data::Struct(s) => s,
         Data::Enum(_) => {
             return Err(Error::new_spanned(
@@ -58,8 +58,8 @@ fn parse_struct_and_fields<'a>(
     };
 
     // Only allow named fields (bracket syntax)
-    let fields = match &data_struct.fields {
-        Fields::Named(fields) => &fields.named,
+    let fields = match data_struct.fields {
+        Fields::Named(fields) => fields.named,
         Fields::Unnamed(_) => {
             return Err(Error::new_spanned(
                 input,

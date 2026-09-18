@@ -4,6 +4,7 @@ mod migrations;
 mod primary_key;
 mod query;
 mod range;
+mod skip_default;
 mod unique_index;
 mod update;
 

@@ -1,10 +1,82 @@
 use proc_macro::TokenStream;
 use quote::quote;
+use syn::Error;
 use syn::Result;
+use syn::parse::Parse;
 use syn::spanned::Spanned;
-use syn::*;
 
 use super::*;
+
+pub struct FieldDef {
+    name: Ident,
+    ty: Type,
+    attrs: FieldAttrs,
+}
+
+#[derive(Default)]
+pub struct FieldAttrs {
+    is_skip: bool,
+    default_fn_maybe: Option<String>,
+}
+
+impl Parse for FieldAttrs {
+    fn parse(input: parse::ParseStream) -> Result<Self> {
+        let field_list = Punctuated::<Expr, Token![,]>::parse_separated_nonempty(input)?;
+        let mut default_fn_maybe: Option<String> = None;
+        let mut is_skip = false;
+        for field in field_list.into_iter() {
+            match field {
+                Expr::Path(name) => {
+                    if name.path.is_ident("default") {
+                        default_fn_maybe = Some("Default::default".into());
+                    } else if name.path.is_ident("skip") {
+                        is_skip = true;
+                    }
+                }
+                Expr::Assign(expr) => {
+                    let left = match *expr.left {
+                        Expr::Path(name) => name
+                            .path
+                            .get_ident()
+                            .cloned()
+                            .ok_or(Error::new(name.span(), "expected LHS to be Ident")),
+                        _ => Err(Error::new(
+                            expr.left.span(),
+                            "expected expression lhs to be path",
+                        )),
+                    }?;
+                    if &left.to_string() != "default" {
+                        continue;
+                    }
+                    match *expr.right {
+                        Expr::Lit(val) => match val.lit {
+                            Lit::Str(v) => {
+                                default_fn_maybe = Some(v.value().to_string());
+                            }
+                            _ => {
+                                return Err(Error::new(
+                                    val.span(),
+                                    "expected expression rhs to be string literal",
+                                ));
+                            }
+                        },
+                        _ => {
+                            return Err(Error::new(
+                                expr.right.span(),
+                                "expected expression rhs to be literal",
+                            ));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(Self {
+            is_skip,
+            default_fn_maybe,
+        })
+    }
+}
 
 pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let crate_name = crate_name();
@@ -12,7 +84,32 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let name = &input.ident;
     let generics = &input.generics;
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let fields = parse_struct_and_fields(&input, "Document")?;
+    let fields = parse_struct_and_fields(&input, "Document")?
+        .into_iter()
+        .map(|field| {
+            let mut field_def = FieldDef {
+                name: field
+                    .ident
+                    .clone()
+                    .ok_or(Error::new(field.span(), "expected field to be named"))?,
+                ty: field.ty.clone(),
+                attrs: Default::default(),
+            };
+            for attr in field.attrs.iter() {
+                if !attr.path().is_ident("serde") {
+                    continue;
+                }
+                field_def.attrs = attr.parse_args::<FieldAttrs>()?;
+            }
+            if field_def.attrs.is_skip && field_def.attrs.default_fn_maybe.is_none() {
+                return Err(Error::new(
+                    field.span(),
+                    "fields that are skipped must have a default value specified",
+                ));
+            }
+            Ok(field_def)
+        })
+        .collect::<Result<Vec<FieldDef>>>()?;
     let field_count = fields.len();
 
     let mut migrations_fn_maybe = None;
@@ -41,31 +138,41 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         })?;
     }
 
-    let from_tuple = fields.iter().map(|f| {
-        let field_name = f.ident.clone().unwrap();
-        // let field_type = f.ty.clone();
-        quote! {
-            #field_name : tuple.iter().find_map(|(name, val)| {
-                if name == stringify!(#field_name) {
-                    let mut bytes = Vec::default();
-                    #crate_name::rmpv::encode::write_value(&mut bytes, val).unwrap();
-                    Some(#crate_name::rmp_serde::from_slice(bytes.as_slice()).unwrap())
-                } else {
-                    None
+    let from_tuple = fields
+        .iter()
+        .map(|f| {
+            let field_name = f.name.clone();
+            Ok(if f.attrs.is_skip {
+                let default_fn = f.attrs.default_fn_maybe.clone().unwrap_or_default();
+                let expr: Expr = parse_str(&default_fn)?;
+                quote! {
+                    #field_name : #expr (),
                 }
-            }).expect("did not find value"),
-        }
-    });
+            } else {
+                quote! {
+                    #field_name : tuple.iter().find_map(|(name, val)| {
+                        if name == stringify!(#field_name) {
+                            let mut bytes = Vec::default();
+                            #crate_name::rmpv::encode::write_value(&mut bytes, val).unwrap();
+                            Some(#crate_name::rmp_serde::from_slice(bytes.as_slice()).unwrap())
+                        } else {
+                            None
+                        }
+                    }).expect("did not find value"),
+                }
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
 
-    let field_types = fields.iter().map(|f| {
-        let field_name = f.ident.clone().unwrap();
+    let field_types = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
+        let field_name = f.name.clone();
         let field_type = f.ty.clone();
         quote! {
             (stringify!(#field_name).to_string(), <#field_type as #crate_name::ValidDBType>::type_name().to_string()),
         }
     });
 
-    let field_constraints = fields.iter().map(|f| {
+    let field_constraints = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
         let field_type = f.ty.clone();
         quote! {
             const _: fn() = || {
@@ -75,8 +182,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
     });
 
-    let phantom_associated_functions = fields.iter().map(|f| {
-        let field_name = f.ident.clone().unwrap();
+    let phantom_associated_functions = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
+        let field_name = f.name.clone();
         let field_type = f.ty.clone();
         quote! {
             pub fn #field_name () -> ::std::marker::PhantomData<#field_type> {
@@ -85,8 +192,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
     });
 
-    let set_fields = fields.iter().map(|f| {
-        let field_name = f.ident.clone().unwrap();
+    let set_fields = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
+        let field_name = f.name.clone();
         // let field_type = f.ty.clone();
         quote! {
             if let Some(param) = self.#field_name.as_ref() {
@@ -95,16 +202,16 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
     });
 
-    let query_fields = fields.iter().map(|f| {
-        let field_name = f.ident.clone().unwrap();
+    let query_fields = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
+        let field_name = f.name.clone();
         let field_type = f.ty.clone();
         quote! {
             pub #field_name: Option<#crate_name::ParamTyped<#field_type>>
         }
     });
 
-    let match_entries = fields.iter().map(|f| {
-        let field_name = f.ident.clone().unwrap();
+    let match_entries = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
+        let field_name = f.name.clone();
         let _field_type = f.ty.clone();
         quote! {
             if let Some(param) = query.#field_name.as_ref() {
@@ -114,8 +221,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             }
         }
     });
-    let query_methods = fields.iter().map(|f| {
-        let field_name = f.ident.clone().unwrap();
+    let query_methods = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
+        let field_name = f.name.clone();
         let field_type = f.ty.clone();
         quote! {
             pub fn #field_name (mut self, p: impl Into<#crate_name::ParamTyped<#field_type>>) -> Self {

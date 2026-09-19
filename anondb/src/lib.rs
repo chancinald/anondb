@@ -14,7 +14,7 @@ pub use collection::*;
 pub use index::*;
 pub use index_compat::*;
 pub use lexicographic::*;
-use metadata::*;
+pub use metadata::*;
 pub use query::*;
 pub use query_params::*;
 pub use types::*;
@@ -30,6 +30,7 @@ pub use anondb_kv::*;
 pub use anondb_macros::AnonDB;
 pub use anondb_macros::Document;
 
+pub use futures;
 pub use rmp_serde;
 pub use rmpv;
 

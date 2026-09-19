@@ -79,11 +79,17 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
     });
 
-    // the name of the database struct
-    let name = &input.ident;
-
     // the concrete KV implementation for the database
     let kv_generic_name = get_kv_generic(&input)?;
+
+    let collections_untyped = field_meta.iter().map(|(collection_name, _meta)| {
+        quote! {
+            Box::new(self. #collection_name .clone()) as Box<dyn #crate_name::AnyCollection<#kv_generic_name>>,
+        }
+    });
+
+    // the name of the database struct
+    let name = &input.ident;
 
     // types on the struct
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -96,6 +102,16 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 Ok(Self {
                     #(#collections)*
                 })
+            }
+
+            pub fn kv(&self) -> #kv_generic_name {
+                self.collections().next().expect("no collections in database").kv()
+            }
+
+            pub fn collections(&self) -> impl Iterator<Item = Box<dyn #crate_name::AnyCollection<#kv_generic_name>>> {
+                vec![
+                    #(#collections_untyped)*
+                ].into_iter()
             }
         }
     };

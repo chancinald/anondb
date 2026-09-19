@@ -8,6 +8,31 @@ use serde::Serialize;
 
 use super::*;
 
+pub trait AnyIndex {
+    fn collection_name(&self) -> &str;
+    fn field_names(&self) -> &Vec<(String, LexStats)>;
+    fn options(&self) -> &IndexOptions;
+    fn kv_table_name(&self) -> &str;
+}
+
+impl<T> AnyIndex for Index<T>
+where
+    T: Serialize + for<'de> Deserialize<'de> + Queryable,
+{
+    fn collection_name(&self) -> &str {
+        &self.collection_name
+    }
+    fn field_names(&self) -> &Vec<(String, LexStats)> {
+        &self.field_names
+    }
+    fn options(&self) -> &IndexOptions {
+        &self.options
+    }
+    fn kv_table_name(&self) -> &str {
+        &self.kv_table_name
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Hash, Default, Serialize, Deserialize)]
 pub struct IndexOptions {
     /// only allow 1 unique combination of each field in the index

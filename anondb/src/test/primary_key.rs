@@ -19,7 +19,7 @@ pub struct DB<K: KV> {
     pub test_collection: Collection<TestDocument2, K>,
     #[anondb(primary_key = id)]
     #[anondb(index = other)]
-    pub other_collection: Collection<OtherDocument, K>,
+    pub _other_collection: Collection<OtherDocument, K>,
 }
 
 #[tokio::test]

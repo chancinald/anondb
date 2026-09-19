@@ -10,6 +10,56 @@ use serde::Serialize;
 
 use super::*;
 
+const DESCRIPTION_KEY: &'static [u8] = "description".as_bytes();
+
+pub trait AnyCollection<K: KV>: Send + Sync {
+    fn name(&self) -> &str;
+    fn indices(&self) -> Vec<Box<dyn AnyIndex>>;
+    fn metatable(&self) -> String {
+        format!("{NAME_SEPARATOR}metadata_{}", self.name())
+    }
+    fn description(
+        &self,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<CollectionDescription>> + Send + Sync>> {
+        let kv = self.kv();
+        let metatable = self.metatable();
+        Box::pin(async move {
+            if let Some(item) = kv.get(&metatable, DESCRIPTION_KEY).await? {
+                Ok(rmp_serde::from_slice(&item.value().await)?)
+            } else {
+                anyhow::bail!("description document is not set")
+            }
+        })
+    }
+    fn primary_key_field_names(&self) -> &Vec<(String, LexStats)>;
+    fn kv(&self) -> K;
+}
+
+impl<T, K: KV> AnyCollection<K> for Collection<T, K>
+where
+    T: 'static + Serialize + for<'de> Deserialize<'de> + Queryable + AnyDocument + Migrateable,
+{
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn indices(&self) -> Vec<Box<dyn AnyIndex>> {
+        self.indices
+            .iter()
+            .cloned()
+            .map(|v| Box::new(v) as Box<dyn AnyIndex>)
+            .collect::<Vec<_>>()
+    }
+
+    fn primary_key_field_names(&self) -> &Vec<(String, LexStats)> {
+        &self.primary_key_field_names
+    }
+
+    fn kv(&self) -> K {
+        self.kv.clone()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Collection<T, K: KV>
 where
@@ -50,20 +100,23 @@ where
         .await
     }
 
+    fn metatable(&self) -> String {
+        <Self as AnyCollection<K>>::metatable(self)
+    }
+
     async fn migrate_if_needed(self) -> Result<Self> {
         log::info!("initializing collection: \"{}\"", self.name);
         if !self.indices.is_empty() {
             log::info!("non-primary indices: {}", self.indices.len());
         }
         let write_tx = self.kv.write_tx().await?;
-        let meta_table = format!("{NAME_SEPARATOR}metadata_{}", self.name);
-        let description_key = "description".as_bytes();
+        let metatable = self.metatable();
         // version is determined by number of migrations defined
         // this is the version of our implementation
         let doc_version = T::migrations().len() as u32;
         log::info!("document impl version: {}", doc_version);
         let existing_description =
-            if let Some(item) = self.kv.get(&meta_table, description_key).await? {
+            if let Some(item) = self.kv.get(&metatable, DESCRIPTION_KEY).await? {
                 rmp_serde::from_slice(&item.value().await)?
             } else {
                 log::info!("no metadata document found, creating...");
@@ -75,8 +128,8 @@ where
                 };
                 write_tx
                     .insert(
-                        &meta_table,
-                        description_key,
+                        &metatable,
+                        DESCRIPTION_KEY,
                         &rmp_serde::to_vec(&description)?,
                     )
                     .await?;
@@ -135,8 +188,8 @@ where
             // update the metadata document
             write_tx
                 .insert(
-                    &meta_table,
-                    description_key,
+                    &metatable,
+                    DESCRIPTION_KEY,
                     &rmp_serde::to_vec(&CollectionDescription {
                         version: doc_version,
                         fields: T::field_types().clone(),
@@ -193,8 +246,8 @@ where
             }
             write_tx
                 .insert(
-                    &meta_table,
-                    description_key,
+                    &metatable,
+                    DESCRIPTION_KEY,
                     &rmp_serde::to_vec(&CollectionDescription {
                         version: doc_version,
                         fields: T::field_types().clone(),

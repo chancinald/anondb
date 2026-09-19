@@ -52,6 +52,7 @@ pub trait KV:
 
     fn list_tables(&self) -> impl Future<Output = Result<Vec<String>>> + Send + Sync;
     fn list_multimap_tables(&self) -> impl Future<Output = Result<Vec<String>>> + Send + Sync;
+    fn description(&self) -> String;
 }
 
 pub trait ReadOperations: Send + Sync {

@@ -56,6 +56,9 @@ impl KV for RedbKV {
             db: Arc::new(if std::fs::exists(path.as_path())? {
                 Database::open(path.as_path())?
             } else {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
                 Database::create(path.as_path())?
             }),
             path: path.to_path_buf(),
@@ -92,6 +95,10 @@ impl KV for RedbKV {
             .list_multimap_tables()?
             .map(|v| v.name().to_string())
             .collect())
+    }
+
+    fn description(&self) -> String {
+        format!("Redb backend\n{}", self.path.to_string_lossy())
     }
 }
 

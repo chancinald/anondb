@@ -112,6 +112,10 @@ impl KV for MemoryKV {
             .map(|(name, _)| name.clone())
             .collect())
     }
+
+    fn description(&self) -> String {
+        "Ephemeral in memory backend".into()
+    }
 }
 
 impl ReadOperations for MemoryKV {

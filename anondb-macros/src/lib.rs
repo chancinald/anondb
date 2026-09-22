@@ -18,7 +18,7 @@ pub fn anondb_derive(input: TokenStream) -> TokenStream {
     }
 }
 
-#[proc_macro_derive(Document, attributes(serde, document))]
+#[proc_macro_derive(Document, attributes(anondb, document))]
 pub fn document_derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     match document::derive(input) {

@@ -3,8 +3,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::StreamExt;
-use serde::Deserialize;
-use serde::Serialize;
 
 use super::*;
 
@@ -17,7 +15,7 @@ pub trait AnyIndex {
 
 impl<T> AnyIndex for Index<T>
 where
-    T: Serialize + for<'de> Deserialize<'de> + Queryable,
+    T: Queryable,
 {
     fn collection_name(&self) -> &str {
         &self.collection_name
@@ -33,7 +31,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub struct IndexOptions {
     /// only allow 1 unique combination of each field in the index
     pub unique: bool,
@@ -43,7 +41,7 @@ pub struct IndexOptions {
 #[derive(Debug, Clone)]
 pub struct Index<T>
 where
-    T: Serialize + for<'de> Deserialize<'de> + Queryable,
+    T: Queryable,
 {
     /// The name of the database collection the index belongs to.
     collection_name: String,
@@ -58,7 +56,7 @@ where
 
 impl<T> Index<T>
 where
-    T: Serialize + for<'de> Deserialize<'de> + Queryable,
+    T: Queryable,
 {
     pub fn new(
         collection_name: String,
@@ -129,8 +127,9 @@ where
 
     /// TODO: allow variable length serialization only as the final element in an index
     /// Accept a set of field keys as lexicographically serialized bytes
-    pub async fn query<'a>(
+    pub(crate) async fn query<'a>(
         &'a self,
+        primary_index: PrimaryIndex<T>,
         tx: impl ReadOperations + RangeReadOperations + 'a,
         query: <T as Queryable>::DocumentQuery,
         scan_range: GeneralRange<Vec<u8>>,
@@ -146,7 +145,7 @@ where
                             "Index \"{}\" referencing primary key that does not exist!",
                             self.kv_table_name
                         ))?;
-                    let doc = rmp_serde::from_slice::<T>(entry.value().await)?;
+                    let doc = primary_index.deserialize(entry.key(), entry.value().await);
                     if doc.matches(&query) {
                         yield doc;
                     }

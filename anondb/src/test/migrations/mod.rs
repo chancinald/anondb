@@ -27,14 +27,20 @@ pub struct TestDocumentV1 {
     pub id1: u128,
     pub id2: u128,
 }
-fn migrations1()
--> &'static [fn(Vec<(String, rmpv::Value)>) -> Result<Vec<(String, rmpv::Value)>, MigrationError>] {
-    &[|mut input| {
-        input.push((
-            "id2".into(),
-            rmpv::decode::read_value(&mut rmp_serde::to_vec(&999)?.as_slice())?,
-        ));
-        Ok(input)
+fn migrations1<'a>() -> &'static [fn(
+    Vec<(String, Vec<u8>)>,
+    Vec<String>,
+    Vec<u8>,
+) -> Result<
+    (Vec<(String, Vec<u8>)>, Vec<String>, Vec<u8>),
+    MigrationError,
+>] {
+    &[|key_values, value_fields, bytes| {
+        Ok((
+            key_values,
+            value_fields,
+            vec![bytes, postcard::to_stdvec(&999u128).unwrap()].concat(),
+        ))
     }]
 }
 

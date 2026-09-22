@@ -5,7 +5,7 @@ async fn should_use_default_value() -> Result<()> {
     #[derive(Document, Debug, Clone, Serialize, Deserialize, PartialEq)]
     pub struct TestDocument {
         pub id: u128,
-        #[serde(skip, default)]
+        #[anondb(skip, default)]
         pub other: String,
     }
 
@@ -39,7 +39,7 @@ async fn should_use_custom_default_value() -> Result<()> {
     #[derive(Document, Debug, Clone, Serialize, Deserialize, PartialEq)]
     pub struct TestDocument {
         pub id: u128,
-        #[serde(skip, default = "custom_default")]
+        #[anondb(skip, default = "custom_default")]
         pub other: String,
     }
 

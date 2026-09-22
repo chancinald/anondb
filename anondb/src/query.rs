@@ -28,7 +28,7 @@ pub trait Query {
                     max_bound = Bound::Included({
                         let mut v = max_key.clone();
                         v.append_upper_inclusive_byte();
-                        v.take()
+                        v.into_vec()
                     });
                     continue;
                 }
@@ -44,7 +44,7 @@ pub trait Query {
                     max_bound = Bound::Included({
                         let mut v = max_key.clone();
                         v.append_upper_inclusive_byte();
-                        v.take()
+                        v.into_vec()
                     });
                 }
                 Param::In(_v) => {
@@ -60,7 +60,7 @@ pub trait Query {
                             // we always treat it as included to account for earlier fields
                             // that may exist in the key
                             min_key.append_key_slice(&v);
-                            min_bound = Bound::Included(min_key.take());
+                            min_bound = Bound::Included(min_key.into_vec());
                         }
                     }
                     match v.end_bound() {
@@ -70,7 +70,7 @@ pub trait Query {
                         Bound::Included(v) | Bound::Excluded(v) => {
                             max_key.append_key_slice(&v);
                             max_key.append_upper_inclusive_byte();
-                            max_bound = Bound::Included(max_key.take());
+                            max_bound = Bound::Included(max_key.into_vec());
                         }
                     }
                     break;

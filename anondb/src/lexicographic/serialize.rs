@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-#[derive(Debug, Clone, PartialEq)]
+use anyhow::Result;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LexStats {
     pub min: Vec<u8>,
     pub max: Option<Vec<u8>>,
@@ -8,7 +10,7 @@ pub struct LexStats {
 }
 
 /// Allow a type to be serialized to lexicographically comparable bytes
-pub trait SerializeLexicographic {
+pub trait SerializeLexicographic: Sized {
     fn serialize_lex(&self) -> Vec<u8>;
     fn min() -> Vec<u8>;
     fn max() -> Option<Vec<u8>> {
@@ -24,6 +26,27 @@ pub trait SerializeLexicographic {
             fixed_width: Self::fixed_width(),
         }
     }
+}
+
+pub trait DeserializeLexicographic: SerializeLexicographic {
+    fn deserialize(bytes: &[u8], len_maybe: Option<usize>) -> Result<(Self, &[u8])> {
+        let len = match (Self::fixed_width(), len_maybe) {
+            (Some(_), Some(_)) => {
+                anyhow::bail!("cannot provide explicit length for fixed size element")
+            }
+            (None, None) => {
+                anyhow::bail!("must provide explicit length for fixed size element")
+            }
+            (Some(len), None) => len as usize,
+            (None, Some(len)) => len,
+        };
+        if bytes.len() < len {
+            anyhow::bail!("bad SerializeLexicographic byte length")
+        }
+        let (bytes, out) = bytes.split_at(len);
+        Ok((Self::from_bytes(bytes)?, out))
+    }
+    fn from_bytes(bytes: &[u8]) -> Result<Self>;
 }
 
 impl<T: SerializeLexicographic> SerializeLexicographic for Option<T> {
@@ -43,6 +66,19 @@ impl<T: SerializeLexicographic> SerializeLexicographic for Option<T> {
     }
 }
 
+impl<T: DeserializeLexicographic> DeserializeLexicographic for Option<T> {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        assert!(!bytes.is_empty());
+        match bytes[0] {
+            0 => Ok(Self::None),
+            1 => Ok(Self::Some(T::from_bytes(&bytes[1..])?)),
+            _ => {
+                anyhow::bail!("bad option first byte")
+            }
+        }
+    }
+}
+
 impl SerializeLexicographic for bool {
     fn serialize_lex(&self) -> Vec<u8> {
         if *self { vec![0x01] } else { vec![0x00] }
@@ -55,47 +91,71 @@ impl SerializeLexicographic for bool {
     fn max() -> Option<Vec<u8>> {
         Some(vec![0x01])
     }
+
+    fn fixed_width() -> Option<u32> {
+        Some(1)
+    }
 }
 
-mod sealed {
-    use super::SerializeLexicographic;
+impl DeserializeLexicographic for bool {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        Ok(match bytes[0] {
+            0 => false,
+            1 => true,
+            _ => anyhow::bail!("bad byte for bool: {}", bytes[0]),
+        })
+    }
+}
 
-    trait ToBytes {
-        fn to_bytes(self) -> Vec<u8>;
+impl SerializeLexicographic for Vec<u8> {
+    fn serialize_lex(&self) -> Vec<u8> {
+        self.clone()
     }
 
-    impl ToBytes for String {
-        fn to_bytes(self) -> Vec<u8> {
-            self.into_bytes()
-        }
+    fn min() -> Vec<u8> {
+        vec![]
+    }
+}
+
+impl DeserializeLexicographic for Vec<u8> {
+    fn from_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+        Ok(bytes.to_vec())
+    }
+}
+
+impl SerializeLexicographic for String {
+    fn serialize_lex(&self) -> Vec<u8> {
+        self.as_bytes().to_vec()
     }
 
-    impl ToBytes for &String {
-        fn to_bytes(self) -> Vec<u8> {
-            self.as_bytes().to_vec()
-        }
+    fn min() -> Vec<u8> {
+        vec![]
+    }
+}
+
+impl DeserializeLexicographic for String {
+    fn from_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+        Ok(Self::from_utf8(bytes.to_vec())?)
+    }
+}
+
+impl SerializeLexicographic for &str {
+    fn serialize_lex(&self) -> Vec<u8> {
+        self.as_bytes().to_vec()
     }
 
-    impl ToBytes for &str {
-        fn to_bytes(self) -> Vec<u8> {
-            self.as_bytes().to_vec()
-        }
+    fn min() -> Vec<u8> {
+        vec![]
+    }
+}
+
+impl SerializeLexicographic for &String {
+    fn serialize_lex(&self) -> Vec<u8> {
+        self.as_bytes().to_vec()
     }
 
-    impl ToBytes for Vec<u8> {
-        fn to_bytes(self) -> Vec<u8> {
-            self
-        }
-    }
-
-    impl<T: ToBytes + Clone> SerializeLexicographic for T {
-        fn serialize_lex(&self) -> Vec<u8> {
-            vec![self.clone().to_bytes(), vec![0x00]].concat()
-        }
-
-        fn min() -> Vec<u8> {
-            vec![0x00]
-        }
+    fn min() -> Vec<u8> {
+        vec![]
     }
 }
 
@@ -115,25 +175,39 @@ macro_rules! lex_uint {
             }
 
             fn fixed_width() -> Option<u32> {
+                assert_eq!(
+                    0,
+                    $int::BITS % 8,
+                    "non-byte aligned bit width for type {}",
+                    stringify!($int)
+                );
                 Some($int::BITS / 8)
             }
         }
 
         impl SerializeLexicographic for $int {
             fn serialize_lex(&self) -> Vec<u8> {
-                self.to_be_bytes().to_vec()
+                (&self).serialize_lex()
             }
 
             fn min() -> Vec<u8> {
-                $int::MIN.to_be_bytes().to_vec()
+                <&$int as SerializeLexicographic>::min()
             }
 
             fn max() -> Option<Vec<u8>> {
-                Some($int::MAX.to_be_bytes().to_vec())
+                <&$int as SerializeLexicographic>::max()
             }
 
             fn fixed_width() -> Option<u32> {
-                Some($int::BITS / 8)
+                <&$int as SerializeLexicographic>::fixed_width()
+            }
+        }
+
+        impl DeserializeLexicographic for $int {
+            fn from_bytes(bytes: &[u8]) -> Result<Self> {
+                let mut buf = [0u8; size_of::<$int>()];
+                buf.copy_from_slice(bytes);
+                Ok(Self::from_be_bytes(buf))
             }
         }
     };
@@ -171,6 +245,14 @@ impl<const N: usize> SerializeLexicographic for [u8; N] {
 
     fn fixed_width() -> Option<u32> {
         Some(N as u32)
+    }
+}
+
+impl<const N: usize> DeserializeLexicographic for [u8; N] {
+    fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let mut buf = [0u8; N];
+        buf.copy_from_slice(bytes);
+        Ok(buf)
     }
 }
 

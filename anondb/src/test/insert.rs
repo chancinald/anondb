@@ -1,16 +1,25 @@
 use super::*;
 
-#[derive(Document, Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TestDocument {
+#[derive(Document, Debug, Clone, PartialEq)]
+pub struct TestDocument<
+    'a,
+    const N: usize,
+    T: Default + Clone + PartialEq + std::fmt::Debug + Send + Sync,
+> {
     pub id: u128,
     pub other: String,
+    #[anondb(skip, default)]
+    pub v: Option<&'a T>,
 }
 
-impl Default for TestDocument {
+impl<'a, const N: usize, T: Default + Clone + PartialEq + std::fmt::Debug + Send + Sync> Default
+    for TestDocument<'a, N, T>
+{
     fn default() -> Self {
         Self {
             id: rand::random(),
             other: rand_utf8(rand::random::<u16>().into()),
+            v: None,
         }
     }
 }
@@ -21,7 +30,7 @@ async fn should_insert_document() -> Result<()> {
     pub struct DB<K: KV> {
         #[anondb(primary_key = id)]
         #[anondb(index = id, other; unique = true)]
-        pub test: Collection<TestDocument, K>,
+        pub test: Collection<TestDocument<'static, 1, u64>, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;
     let doc = TestDocument::default();

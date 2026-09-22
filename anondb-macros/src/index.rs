@@ -47,29 +47,94 @@ impl IndexDef {
             });
         }
 
-        quote! {
-            #crate_name::Index::new(
-                stringify!(#collection_name).into(),
-                vec![#(
-                    (
-                        stringify!(#fields).to_string(),
-                        <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().stats()
-                     )
-                    ),*
-                ],
-                |doc: &#doc_generic| -> Vec<u8> {
-                    let mut key = #crate_name::LexicographicKey::default();
-                    #(
-                        let bytes = <_ as #crate_name::SerializeLexicographic>::serialize_lex(&doc.#fields);
-                        key.append_key_slice(bytes.as_slice());
-                    )*
-                    key.take()
-                },
-                #crate_name::IndexOptions {
-                    #(#options)*
-                    ..Default::default()
+        match self.index_type {
+            IndexType::Primary => {
+                quote! {
+                    #crate_name::PrimaryIndex::new(
+                        vec![#(
+                            (
+                                stringify!(#fields).to_string(),
+                                <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().stats()
+                             )
+                            ),*
+                        ],
+                        |doc: &#doc_generic, full_doc: bool| -> (Vec<u8>, Option<Vec<u8>>) {
+                            let mut maybe_struct = <<#doc_generic as #crate_name::Maybe>::MaybeStruct>::from(doc.clone());
+                            let mut key = #crate_name::LexicographicKey::default();
+                            let mut len_buf = Vec::default();
+                            #(
+                                {
+                                    let v = maybe_struct.#fields.take().expect("field already taken");
+                                    let bytes = #crate_name::SerializeLexicographic::serialize_lex(&v);
+                                    if full_doc && <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().stats().fixed_width.is_none() {
+                                        len_buf = #crate_name::postcard::to_extend(&(bytes.len() as u64), len_buf).unwrap();
+                                    }
+                                    key.append_key_vec(bytes);
+                                }
+                            )*
+                            if full_doc {
+                                (key.into_vec(), Some(vec![len_buf, maybe_struct.serialize_remaining().expect("")].concat()))
+                            } else {
+                                (key.into_vec(), None)
+                            }
+                        },
+                        |mut key: &[u8], mut value: &[u8]| -> #doc_generic {
+                            let mut maybe_struct = <<#doc_generic as #crate_name::Maybe>::MaybeStruct>::default();
+                            #(
+                                {
+                                    let len_maybe = if <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().stats().fixed_width.is_none() {
+                                        let (len, rem) = #crate_name::postcard::take_from_bytes::<'_, u64>(value).unwrap();
+                                        value = rem;
+                                        Some(len as usize)
+                                    } else {
+                                        None
+                                    };
+                                    assert!(maybe_struct.#fields.is_none(), "field aleady parsed");
+                                    let (v, rem) = #crate_name::DeserializeLexicographic::deserialize(key, len_maybe).unwrap();
+                                    maybe_struct.#fields = Some(v);
+                                    if !rem.is_empty() {
+                                        // skip 1 byte separator in the lexicographic key
+                                        let (sep, rem) = rem.split_at(1);
+                                        assert_eq!(sep[0], 0);
+                                        key = rem;
+                                    } else {
+                                        key = rem;
+                                    }
+                                }
+                            )*
+                            assert!(key.is_empty(), "did not parse all key elements, {} remaining", key.len());
+                            maybe_struct.deserialize_remaining(value).unwrap();
+                            maybe_struct.into()
+                        }
+                    )
                 }
-            ),
+            }
+            IndexType::Normal => {
+                quote! {
+                    #crate_name::Index::new(
+                        stringify!(#collection_name).into(),
+                        vec![#(
+                            (
+                                stringify!(#fields).to_string(),
+                                <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().stats()
+                             )
+                            ),*
+                        ],
+                        |doc: &#doc_generic| -> Vec<u8> {
+                            let mut key = #crate_name::LexicographicKey::default();
+                            #(
+                                let bytes = <_ as #crate_name::SerializeLexicographic>::serialize_lex(&doc.#fields);
+                                key.append_key_slice(bytes.as_slice());
+                            )*
+                            key.into_vec()
+                        },
+                        #crate_name::IndexOptions {
+                            #(#options)*
+                            ..Default::default()
+                        }
+                    ),
+                }
+            }
         }
     }
 }

@@ -23,7 +23,7 @@ pub fn rand_utf8(len: usize) -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
-pub struct TestDocument {
+pub struct BigTestDocument {
     pub id0: u128,
     pub id1: u128,
     pub id2: u128,
@@ -34,7 +34,7 @@ pub struct TestDocument {
     pub bytes_fixed: [u8; 32],
 }
 
-impl Default for TestDocument {
+impl Default for BigTestDocument {
     fn default() -> Self {
         Self {
             id0: rand::random(),
@@ -52,14 +52,14 @@ impl Default for TestDocument {
 #[tokio::test]
 async fn should_fail_bad_collection_name() -> Result<()> {
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
-    pub struct TestDocument {
+    pub struct BigTestDocument {
         pub id: u128,
     }
 
     #[derive(Debug, AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id)]
-        pub ___test_collection: Collection<TestDocument, K>,
+        pub ___test_collection: Collection<BigTestDocument, K>,
     }
     DB::<MemoryKV>::new(None)
         .await

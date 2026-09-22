@@ -4,7 +4,7 @@ members = ["anondb", "anondb-kv", "anondb-macros", "domacro"]
 
 [workspace.dependencies]
 anyhow = "1"
-serde = "1"
+serde = { version = "1", default-features = false }
 log_ext = { package = "log", version = "0" }
 futures = "0.3"
 async-stream = "0.3"

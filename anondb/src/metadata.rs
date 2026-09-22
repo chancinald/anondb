@@ -18,6 +18,7 @@ pub struct CollectionDescription {
     pub version: u32,
     /// field name along with type description string
     pub fields: Vec<(String, String)>,
+    pub primary_key_fields: Vec<(String, LexStats)>,
     /// last known indices
     pub indices: Vec<IndexDescription>,
 }

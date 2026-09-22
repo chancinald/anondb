@@ -36,6 +36,13 @@ impl LexicographicKey {
         self.bytes.extend_from_slice(slice);
     }
 
+    pub fn append_key_vec(&mut self, mut vec: Vec<u8>) {
+        if !self.bytes.is_empty() {
+            self.append_separator();
+        }
+        self.bytes.append(&mut vec);
+    }
+
     /// Append a 0x01 byte that will sort all longer keys before this key.
     pub fn append_upper_inclusive_byte(&mut self) {
         self.bytes.push(0x01);
@@ -49,16 +56,26 @@ impl LexicographicKey {
         self.bytes.is_empty()
     }
 
-    pub fn take(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.bytes)
-    }
-
     pub fn as_slice(&self) -> &[u8] {
         &self.bytes
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
         self.bytes.clone()
+    }
+
+    pub fn into_vec(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+impl FromIterator<Vec<u8>> for LexicographicKey {
+    fn from_iter<T: IntoIterator<Item = Vec<u8>>>(iter: T) -> Self {
+        let mut key = LexicographicKey::default();
+        for v in iter {
+            key.append_key_vec(v);
+        }
+        key
     }
 }
 

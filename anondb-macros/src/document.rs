@@ -83,6 +83,14 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
     let name = &input.ident;
     let generics = &input.generics;
+    let phantom_generics = generics
+        .type_params()
+        .map(|v| {
+            let name = &v.ident;
+            quote! { #name }
+        })
+        .chain(generics.lifetimes().map(|v| quote! { &#v () }))
+        .collect::<Vec<_>>();
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let fields = parse_struct_and_fields(&input, "Document")?
         .into_iter()
@@ -96,7 +104,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 attrs: Default::default(),
             };
             for attr in field.attrs.iter() {
-                if !attr.path().is_ident("serde") {
+                if !attr.path().is_ident("anondb") {
                     continue;
                 }
                 field_def.attrs = attr.parse_args::<FieldAttrs>()?;
@@ -127,9 +135,13 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 }
                 let fn_name = meta.value()?.parse::<syn::Path>()?;
                 migrations_fn_maybe = Some(quote! {
-                    fn migrations() -> &'static [fn(
-                        Vec<(String, #crate_name::rmpv::Value)>,
-                    ) -> Result<Vec<(String, #crate_name::rmpv::Value)>, #crate_name::MigrationError>] {
+                    fn migrations<'a>() -> &'static [fn(
+                        Vec<(String, Vec<u8>)>,
+                        Vec<String>,
+                        Vec<u8>
+                    ) ->
+                            Result<(Vec<(String, Vec<u8>)>, Vec<String>, Vec<u8>),
+                            #crate_name::MigrationError>] {
                         #fn_name ()
                     }
                 });
@@ -138,39 +150,30 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         })?;
     }
 
-    let from_tuple = fields
-        .iter()
-        .map(|f| {
-            let field_name = f.name.clone();
-            Ok(if f.attrs.is_skip {
-                let default_fn = f.attrs.default_fn_maybe.clone().unwrap_or_default();
-                let expr: Expr = parse_str(&default_fn)?;
-                quote! {
-                    #field_name : #expr (),
-                }
-            } else {
-                quote! {
-                    #field_name : tuple.iter().find_map(|(name, val)| {
-                        if name == stringify!(#field_name) {
-                            let mut bytes = Vec::default();
-                            #crate_name::rmpv::encode::write_value(&mut bytes, val).unwrap();
-                            Some(#crate_name::rmp_serde::from_slice(bytes.as_slice()).unwrap())
-                        } else {
-                            None
-                        }
-                    }).expect("did not find value"),
-                }
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    let field_types = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
-        let field_name = f.name.clone();
-        let field_type = f.ty.clone();
+    let skipped_fields = fields.iter().filter(|f| f.attrs.is_skip).map(|f| {
+        let name = &f.name;
+        let func = f
+            .attrs
+            .default_fn_maybe
+            .as_ref()
+            .unwrap_or_else(|| panic!("no default value set for field {}", f.name));
+        let expr: Expr = parse_str(func).unwrap();
         quote! {
-            (stringify!(#field_name).to_string(), <#field_type as #crate_name::ValidDBType>::type_name().to_string()),
+            #name: #expr(),
         }
     });
+
+    let field_types = fields
+        .iter()
+        .filter(|f| !f.attrs.is_skip)
+        .map(|f| f.ty.clone())
+        .collect::<Vec<_>>();
+
+    let field_names = fields
+        .iter()
+        .filter(|f| !f.attrs.is_skip)
+        .map(|f| f.name.clone())
+        .collect::<Vec<_>>();
 
     let field_constraints = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
         let field_type = f.ty.clone();
@@ -182,75 +185,39 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
     });
 
-    let phantom_associated_functions = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
-        let field_name = f.name.clone();
-        let field_type = f.ty.clone();
-        quote! {
-            pub fn #field_name () -> ::std::marker::PhantomData<#field_type> {
-                ::std::marker::PhantomData::<#field_type>
-            }
-        }
-    });
-
-    let set_fields = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
-        let field_name = f.name.clone();
-        // let field_type = f.ty.clone();
-        quote! {
-            if let Some(param) = self.#field_name.as_ref() {
-                out.push((stringify!(#field_name), param.into()));
-            }
-        }
-    });
-
-    let query_fields = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
-        let field_name = f.name.clone();
-        let field_type = f.ty.clone();
-        quote! {
-            pub #field_name: Option<#crate_name::ParamTyped<#field_type>>
-        }
-    });
-
-    let match_entries = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
-        let field_name = f.name.clone();
-        let _field_type = f.ty.clone();
-        quote! {
-            if let Some(param) = query.#field_name.as_ref() {
-                if !param.test(&self.#field_name) {
-                    return false;
-                }
-            }
-        }
-    });
-    let query_methods = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
-        let field_name = f.name.clone();
-        let field_type = f.ty.clone();
-        quote! {
-            pub fn #field_name (mut self, p: impl Into<#crate_name::ParamTyped<#field_type>>) -> Self {
-                self.#field_name = Some(p.into());
-                self
-            }
-        }
-    });
     let query_struct_name = quote::format_ident!("{}_Query", name);
     let phantom_struct_name = quote::format_ident!("{}_Phantom", name);
+    let maybe_struct_name = quote::format_ident!("{}_Maybe", name);
 
     let expanded = quote! {
 
         #[derive(Default, Clone, Debug)]
         #[allow(non_camel_case_types)]
-        pub struct #impl_generics #query_struct_name #ty_generics #where_clause {
-            #(#query_fields),*
+        pub struct #query_struct_name #impl_generics #where_clause {
+            #(
+                pub #field_names : Option<#crate_name::ParamTyped<#field_types>>,
+            )*
+            _phantom: std::marker::PhantomData<(#(#phantom_generics),*)>
         }
 
         impl #impl_generics #query_struct_name #ty_generics #where_clause {
-            #(#query_methods)*
+            #(
+                pub fn #field_names (mut self, p: impl Into<#crate_name::ParamTyped<#field_types>>) -> Self {
+                    self.#field_names = Some(p.into());
+                    self
+                }
+            )*
         }
 
-        impl #crate_name::Query for #impl_generics #query_struct_name #ty_generics #where_clause {
+        impl #impl_generics #crate_name::Query for #query_struct_name #ty_generics #where_clause {
             /// Get a vector containing the fields that have been set.
             fn fields(&self) -> Vec<(&'static str, #crate_name::Param)> {
                 let mut out = Vec::with_capacity(#field_count);
-                #(#set_fields)*
+                #(
+                    if let Some(param) = self.#field_names.as_ref() {
+                        out.push((stringify!(#field_names), param.into()));
+                    }
+                )*
                 out
             }
         }
@@ -262,40 +229,101 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         pub struct #phantom_struct_name;
 
         impl #phantom_struct_name {
-            #(#phantom_associated_functions)*
+            #(
+                pub fn #field_names() -> ::std::marker::PhantomData<#field_types> {
+                    ::std::marker::PhantomData::<#field_types>
+                }
+            )*
         }
 
         impl #impl_generics #crate_name::Queryable for #name #ty_generics #where_clause {
-            type DocumentQuery = #query_struct_name;
+            type DocumentQuery = #query_struct_name #ty_generics;
             type DocumentPhantom = #phantom_struct_name;
 
             fn matches(&self, query: &Self::DocumentQuery) -> bool {
-                #(#match_entries)*
+                #(
+                    if let Some(param) = query.#field_names.as_ref() {
+                        if !param.test(&self.#field_names) {
+                            return false;
+                        }
+                    }
+                )*
                 true
             }
         }
 
         impl #impl_generics #crate_name::AnyDocument for #name #ty_generics #where_clause {
-            fn field_types() -> &'static Vec<(String, String)> {
-                use ::std::sync::OnceLock;
-                static FIELDS: OnceLock<Vec<(String, String)>> = OnceLock::new();
-                FIELDS.get_or_init(|| {
-                    [
-                        #(#field_types)*
-                    ].to_vec()
-                }).as_ref()
-            }
-
-            fn from_tuple(tuple: Vec<(String, #crate_name::rmpv::Value)>) -> Self {
-                assert_eq!(tuple.len(), Self::field_types().len(), "document bad tuple length");
-                Self {
-                    #(#from_tuple)*
-                }
+            fn field_types() -> &'static [(&'static str, &'static str)] {
+                &[
+                    #(
+                        (stringify!(#field_names), stringify!(#field_types)),
+                    )*
+                ]
             }
         }
 
         impl #impl_generics #crate_name::Migrateable for #name #ty_generics #where_clause {
             #migrations_fn_maybe
+        }
+
+        impl #impl_generics #crate_name::Maybe for #name #ty_generics #where_clause {
+            type MaybeStruct = #maybe_struct_name #ty_generics;
+        }
+
+        #[derive(Debug, Default)]
+        #[allow(non_camel_case_types)]
+        pub struct #maybe_struct_name #impl_generics #where_clause {
+            #(pub #field_names : Option<#field_types>,)*
+            _phantom: std::marker::PhantomData<(#(#phantom_generics),*)>
+        }
+
+        impl #impl_generics #maybe_struct_name #ty_generics #where_clause {
+            pub(crate) fn serialize_remaining(mut self) -> #crate_name::postcard::Result<Vec<u8>> {
+                let mut out = Vec::default();
+                #(
+                    if let Some(value) = self.#field_names.take() {
+                        out = #crate_name::postcard::to_extend(&value, out)?;
+
+                    }
+                )*
+                Ok(out)
+            }
+
+            pub(crate) fn deserialize_remaining(&mut self, mut bytes: &[u8]) -> #crate_name::postcard::Result<()> {
+                #(
+                    if self.#field_names.is_none() {
+                        let (v, rem) = #crate_name::postcard::take_from_bytes::<'_, #field_types>(bytes)?;
+                        self.#field_names = Some(v);
+                        bytes = rem;
+                    }
+                )*
+                assert!(bytes.is_empty(), "did not parse all bytes");
+                Ok(())
+            }
+        }
+
+        impl #impl_generics From<#name #ty_generics> for #maybe_struct_name #ty_generics #where_clause {
+            fn from(value: #name #ty_generics) -> Self {
+                Self {
+                    #(
+                        #field_names: Some(value.#field_names),
+                    )*
+                    _phantom: std::marker::PhantomData::default()
+                }
+            }
+        }
+
+        impl #impl_generics Into<#name #ty_generics> for #maybe_struct_name #ty_generics #where_clause {
+            fn into(mut self) -> #name #ty_generics {
+                #name {
+                    #(
+                        #field_names: self.#field_names.take().expect(""),
+                    )*
+                    #(
+                        #skipped_fields
+                    )*
+                }
+            }
         }
     };
 

@@ -44,11 +44,11 @@ async fn compound_primary_key() -> Result<()> {
     #[derive(AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0, id1, id2)]
-        pub test: Collection<TestDocument, K>,
+        pub test: Collection<BigTestDocument, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;
 
-    let mut doc0 = TestDocument::default();
+    let mut doc0 = BigTestDocument::default();
 
     db.test.insert(&doc0).await?;
 
@@ -62,7 +62,7 @@ async fn compound_primary_key() -> Result<()> {
 
     let doc = db
         .test
-        .find_one(TestDocument::query().id1(doc0.id1))
+        .find_one(BigTestDocument::query().id1(doc0.id1))
         .await?
         .expect("unable to find inserted doc");
 

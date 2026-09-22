@@ -6,11 +6,11 @@ async fn fail_insert_unique_index() -> Result<()> {
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0)]
         #[anondb(index = id1; unique = true)]
-        pub test: Collection<TestDocument, K>,
+        pub test: Collection<BigTestDocument, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;
-    let doc0 = TestDocument::default();
-    let mut doc1 = TestDocument::default();
+    let doc0 = BigTestDocument::default();
+    let mut doc1 = BigTestDocument::default();
     doc1.id1 = doc0.id1;
 
     db.test.insert(&doc0).await?;
@@ -28,11 +28,11 @@ async fn fail_insert_unique_compound_index_2() -> Result<()> {
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0)]
         #[anondb(index = id1, id2; unique = true)]
-        pub test: Collection<TestDocument, K>,
+        pub test: Collection<BigTestDocument, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;
-    let doc0 = TestDocument::default();
-    let mut doc1 = TestDocument::default();
+    let doc0 = BigTestDocument::default();
+    let mut doc1 = BigTestDocument::default();
     doc1.id1 = doc0.id1;
     doc1.id2 = doc0.id2;
 
@@ -54,11 +54,11 @@ async fn fail_insert_unique_compound_index_3() -> Result<()> {
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0)]
         #[anondb(index = id1, id2, id3; unique = true)]
-        pub test: Collection<TestDocument, K>,
+        pub test: Collection<BigTestDocument, K>,
     }
     let db = DB::<MemoryKV>::new(None).await?;
-    let doc0 = TestDocument::default();
-    let mut doc1 = TestDocument::default();
+    let doc0 = BigTestDocument::default();
+    let mut doc1 = BigTestDocument::default();
     doc1.id1 = doc0.id1;
     doc1.id2 = doc0.id2;
     doc1.id3 = doc0.id3;

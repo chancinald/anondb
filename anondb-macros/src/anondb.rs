@@ -71,7 +71,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             #collection_name: #crate_name::Collection::new(
                 kv.clone(),
                 stringify!(#collection_name).into(),
-                #primary_index
+                #primary_index ,
                 vec![
                     #(#indices)*
                 ]

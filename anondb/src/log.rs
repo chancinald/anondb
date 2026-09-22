@@ -6,9 +6,9 @@
 pub(crate) mod test {
     use std::sync::LazyLock;
     pub static SETUP: LazyLock<()> = LazyLock::new(|| {
-        env_logger::builder()
-            .filter_level(log_ext::LevelFilter::Info)
-            .init();
+        // env_logger::builder()
+        //     .filter_level(log_ext::LevelFilter::Info)
+        //     .init();
     });
 }
 

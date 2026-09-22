@@ -25,6 +25,7 @@ anondb-kv = { workspace = true }
 anondb-macros = { workspace = true }
 
 [dev-dependencies]
-# env_logger = "0"
+env_logger = "0"
 rand = { workspace = true }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+paste = "1"

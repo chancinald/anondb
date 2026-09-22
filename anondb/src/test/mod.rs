@@ -1,6 +1,7 @@
 mod index;
 mod insert;
 mod migrations;
+mod order;
 mod primary_key;
 mod query;
 mod range;
@@ -20,6 +21,11 @@ pub fn rand_utf8(len: usize) -> String {
         .into_iter()
         .map(|_| rand::random::<char>())
         .collect()
+}
+
+#[cfg(test)]
+pub fn rand_bytes(len: usize) -> Vec<u8> {
+    (0..len).map(|_| rand::random()).collect()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]

@@ -276,18 +276,18 @@ impl SerializeLexicographic for () {
     fn serialize_lex(&self) -> Vec<u8> {
         unreachable!()
     }
-
     fn min() -> Vec<u8> {
-        unreachable!()
-    }
-
-    fn max() -> Option<Vec<u8>> {
-        unreachable!()
+        vec![]
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeMap;
+
+    use rand::distr::Distribution;
+    use rand::distr::StandardUniform;
+
     use crate::*;
 
     #[test]
@@ -308,6 +308,44 @@ mod test {
             let s0_bytes = s0.serialize_lex();
             let s1_bytes = s1.serialize_lex();
             assert_eq!(s0_bytes.cmp(&s1_bytes), s0.cmp(&s1));
+        }
+    }
+
+    #[test]
+    fn should_sort_integers() {
+        sample_and_sort::<u8>();
+        sample_and_sort::<u16>();
+        sample_and_sort::<u32>();
+        sample_and_sort::<u64>();
+        sample_and_sort::<u128>();
+        fn sample_and_sort<
+            T: SerializeLexicographic + DeserializeLexicographic + Ord + Display + std::fmt::Debug,
+        >()
+        where
+            StandardUniform: Distribution<T>,
+        {
+            let mut byte_tree = BTreeMap::<Vec<u8>, usize>::default();
+            let mut val_tree = BTreeMap::<T, usize>::default();
+            for i in 0..1000 {
+                let v = rand::random::<T>();
+                byte_tree.insert(v.serialize_lex(), i);
+                val_tree.insert(v, i);
+            }
+            for ((bytes, b_i), (v, v_i)) in byte_tree.into_iter().zip(val_tree.into_iter()) {
+                assert_eq!(
+                    b_i,
+                    v_i,
+                    "index mismatch for type {}. value {}, bytes {:?}, indices {}, {}",
+                    stringify!(T),
+                    v,
+                    bytes,
+                    v_i,
+                    b_i
+                );
+                let (d, rem) = T::deserialize(&bytes, None).unwrap();
+                assert_eq!(v, d);
+                assert!(rem.is_empty());
+            }
         }
     }
 }

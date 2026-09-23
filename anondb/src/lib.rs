@@ -64,6 +64,11 @@ pub trait AnyDocument {
     }
 }
 
+pub trait ParseableDocument {
+    /// Convert to a hashmap of field names keyed to field type and type erased value.
+    fn into_map(self) -> std::collections::BTreeMap<String, (String, Box<dyn ValidDBType>)>;
+}
+
 pub trait Migrateable {
     fn migrations<'a>() -> &'static [fn(
         Vec<(String, Vec<u8>)>,

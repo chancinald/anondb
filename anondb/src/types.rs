@@ -5,7 +5,11 @@ mod sealed {
 }
 
 /// A type that may be used in the database.
-pub trait ValidDBType: sealed::Sealed + SerializeLexicographic + std::fmt::Debug {}
+pub trait ValidDBType: sealed::Sealed + SerializeLexicographic + std::fmt::Debug {
+    fn render(&self) -> String {
+        format!("{self:?}")
+    }
+}
 
 macro_rules! impl_native {
     ($($t:ty),*) => { $(
@@ -14,15 +18,24 @@ macro_rules! impl_native {
     )* };
 }
 impl_native!(
-    String, bool, /* i8, i16, i32, i64, i128,*/ u8, u16, u32, u64, u128 /* f32, f64*/
+    bool, /* i8, i16, i32, i64, i128,*/ u8, u16, u32, u64, u128 /* f32, f64*/
 );
 
-impl<T: ValidDBType + SerializeLexicographic + LexStats> sealed::Sealed for Option<T> {}
-impl<T: ValidDBType + SerializeLexicographic + LexStats> ValidDBType for Option<T> {}
+impl sealed::Sealed for String {}
+impl ValidDBType for String {
+    fn render(&self) -> String {
+        self.clone()
+    }
+}
 
-impl SerializeLexicographic for Box<dyn ValidDBType> {
-    fn serialize_lex(&self) -> Vec<u8> {
-        unimplemented!()
+impl<T: ValidDBType + SerializeLexicographic + LexStats> sealed::Sealed for Option<T> {}
+impl<T: ValidDBType + SerializeLexicographic + LexStats> ValidDBType for Option<T> {
+    fn render(&self) -> String {
+        if let Some(v) = self {
+            v.render()
+        } else {
+            "None".into()
+        }
     }
 }
 

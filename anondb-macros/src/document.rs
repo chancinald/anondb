@@ -258,6 +258,19 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             }
         }
 
+        impl #impl_generics #crate_name::ParseableDocument for #name #ty_generics #where_clause {
+            fn into_map(self) -> std::collections::BTreeMap<String, (String, Box<dyn #crate_name::ValidDBType>)> {
+                let mut out = std::collections::BTreeMap::default();
+                #(
+                    out.insert(
+                        stringify!(#field_names).to_string(),
+                        (stringify!(#field_types).to_string(), Box::new(self.#field_names) as Box<dyn #crate_name::ValidDBType>)
+                    );
+                )*
+                out
+            }
+        }
+
         impl #impl_generics #crate_name::AnyDocument for #name #ty_generics #where_clause {
             fn field_types() -> &'static [(&'static str, &'static str)] {
                 &[

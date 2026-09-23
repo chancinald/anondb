@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::Context;
 use anyhow::Result;
 use futures::Stream;
 use futures::TryStreamExt;
@@ -53,14 +54,17 @@ impl KV for RedbKV {
             panic!("refusing to start without redb database path")
         });
         Ok(Self {
-            db: Arc::new(if std::fs::exists(path.as_path())? {
-                Database::open(path.as_path())?
-            } else {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)?;
+            db: Arc::new(
+                if std::fs::exists(path.as_path())? {
+                    Database::open(path.as_path())
+                } else {
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    Database::create(path.as_path())
                 }
-                Database::create(path.as_path())?
-            }),
+                .with_context(|| "initializing anondb Redb kv backend")?,
+            ),
             path: path.to_path_buf(),
         })
     }

@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::collections::BTreeMap;
 use std::collections::HashSet;
 
 use anyhow::Result;
@@ -30,11 +31,19 @@ pub trait AnyCollection<K: KV>: Send + Sync {
     }
     fn primary_key_field_names(&self) -> &Vec<(String, OwnedLexStats)>;
     fn kv(&self) -> K;
+    fn parse_key_value(
+        &self,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<(
+        Vec<(String, String, Box<dyn ValidDBType>)>,
+        BTreeMap<String, (String, Box<dyn ValidDBType>)>,
+    )>;
 }
 
 impl<T, K: KV> AnyCollection<K> for Collection<T, K>
 where
-    T: 'static + Queryable + AnyDocument + Migrateable,
+    T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
 {
     fn name(&self) -> &str {
         &self.name
@@ -49,18 +58,37 @@ where
     }
 
     fn primary_key_field_names(&self) -> &Vec<(String, OwnedLexStats)> {
-        unimplemented!()
+        self.primary_index.fields()
     }
 
     fn kv(&self) -> K {
         self.kv.clone()
+    }
+
+    fn parse_key_value(
+        &self,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<(
+        Vec<(String, String, Box<dyn ValidDBType>)>,
+        BTreeMap<String, (String, Box<dyn ValidDBType>)>,
+    )> {
+        let mut entries = self.primary_index.deserialize(key, value).into_map();
+        let mut key_entries = Vec::with_capacity(self.primary_key_field_names().len());
+        for (name, _) in self.primary_key_field_names().iter() {
+            let entry = entries
+                .remove(name)
+                .expect("should contain primary key entry");
+            key_entries.push((name.to_string(), entry.0, entry.1));
+        }
+        Ok((key_entries, entries))
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Collection<T, K: KV>
 where
-    T: 'static + Queryable + AnyDocument + Migrateable,
+    T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
 {
     kv: K,
     name: String,
@@ -70,7 +98,7 @@ where
 
 impl<T, K: KV> Collection<T, K>
 where
-    T: 'static + Queryable + AnyDocument + Migrateable,
+    T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
 {
     pub async fn new(
         kv: K,
@@ -474,5 +502,9 @@ where
                 }
             }
         })
+    }
+
+    pub async fn clear(&self) -> Result<()> {
+        self.kv.clear(&self.name).await
     }
 }

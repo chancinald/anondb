@@ -16,8 +16,8 @@ impl IndexQueryCompatibility {
     /// Determine how compatible this index is with a given query. A higher score indicates a
     /// faster query. An index that matches exactly returns a high score.
     pub fn new(
-        field_names: &Vec<(String, LexStats)>,
-        index_params: &Vec<(&str, Param)>,
+        field_names: &Vec<(String, OwnedLexStats)>,
+        index_params: &Vec<(&str, QueryParam<Vec<u8>>)>,
     ) -> Result<Self> {
         let mut is_full_prefix = true; // are we able to utilize all of the fields in this index?
         let mut is_range_match = false;
@@ -32,10 +32,10 @@ impl IndexQueryCompatibility {
             };
             // matched_any = true;
             match query_param {
-                Param::Eq(_) | Param::In(_) => {
+                QueryParam::Eq(_) => {
                     //
                 }
-                Param::Range(_) => {
+                QueryParam::Range(_) => {
                     is_range_match = true;
                     if !is_last_field {
                         // if we have a range on a field that is not the last field in the
@@ -44,12 +44,6 @@ impl IndexQueryCompatibility {
                         is_full_prefix = false;
                     }
                     break; // break when we encounter a field that would necessitate a scan
-                }
-                Param::Neq(_) | Param::Nin(_) => {
-                    if !is_last_field {
-                        is_full_prefix = false;
-                    }
-                    break;
                 }
             }
             if lex_stats.fixed_width.is_none() {

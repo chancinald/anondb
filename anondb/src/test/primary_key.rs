@@ -62,7 +62,7 @@ async fn compound_primary_key() -> Result<()> {
 
     let doc = db
         .test
-        .find_one(BigTestDocument::query().id1(doc0.id1))
+        .find_one(BigTestDocument::query().id1().eq(doc0.id1))
         .await?
         .expect("unable to find inserted doc");
 

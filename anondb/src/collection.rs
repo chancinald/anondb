@@ -28,7 +28,7 @@ pub trait AnyCollection<K: KV>: Send + Sync {
             }
         })
     }
-    fn primary_key_field_names(&self) -> &Vec<(String, LexStats)>;
+    fn primary_key_field_names(&self) -> &Vec<(String, OwnedLexStats)>;
     fn kv(&self) -> K;
 }
 
@@ -48,7 +48,7 @@ where
             .collect::<Vec<_>>()
     }
 
-    fn primary_key_field_names(&self) -> &Vec<(String, LexStats)> {
+    fn primary_key_field_names(&self) -> &Vec<(String, OwnedLexStats)> {
         unimplemented!()
     }
 
@@ -409,7 +409,10 @@ where
 
     /// Select the index which matches a query best.
     /// A None value indicates retrieval by primary key.
-    fn select_index(&self, query_fields: &Vec<(&str, Param)>) -> Result<Option<&Index<T>>> {
+    fn select_index(
+        &self,
+        query_fields: &Vec<(&str, QueryParam<Vec<u8>>)>,
+    ) -> Result<Option<&Index<T>>> {
         let (mut compat, mut out_index): (IndexQueryCompatibility, Option<&Index<T>>);
         compat = IndexQueryCompatibility::new(&self.primary_index.fields(), query_fields)?;
         out_index = None;
@@ -431,7 +434,7 @@ where
         &self,
         query: <T as Queryable>::DocumentQuery,
     ) -> Result<impl futures::Stream<Item = Result<T>> + Send + Sync> {
-        let fields = query.fields();
+        let fields = query.serialize();
         let index_maybe = self.select_index(&fields)?;
         let tx = self.kv.read_tx().await?;
         if let Some(index) = index_maybe {

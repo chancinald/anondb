@@ -35,7 +35,13 @@ async fn should_query_collection() -> Result<()> {
     {
         let out = db
             .test_collection
-            .find_one(TestDocument2::query().id(80..).other(""))
+            .find_one(
+                TestDocument2::query()
+                    .id()
+                    .range(80..)
+                    .other()
+                    .eq("".into()),
+            )
             .await?;
         assert!(out.is_some());
         let out = out.unwrap();
@@ -44,14 +50,14 @@ async fn should_query_collection() -> Result<()> {
     {
         let out = db
             .test_collection
-            .find_one(TestDocument2::query().id(1000..))
+            .find_one(TestDocument2::query().id().range(1000..))
             .await?;
         assert!(out.is_none());
     }
     {
         let out = db
             .test_collection
-            .find_one(TestDocument2::query().id(99))
+            .find_one(TestDocument2::query().id().eq(99))
             .await?;
         assert!(out.is_some());
         let out = out.unwrap();

@@ -195,27 +195,33 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         #[allow(non_camel_case_types)]
         pub struct #query_struct_name #impl_generics #where_clause {
             #(
-                pub #field_names : Option<#crate_name::ParamTyped<#field_types>>,
+                pub #field_names : Option<#crate_name::QueryParam<#field_types>>,
             )*
             _phantom: std::marker::PhantomData<(#(#phantom_generics),*)>
         }
 
         impl #impl_generics #query_struct_name #ty_generics #where_clause {
             #(
-                pub fn #field_names (mut self, p: impl Into<#crate_name::ParamTyped<#field_types>>) -> Self {
-                    self.#field_names = Some(p.into());
-                    self
+                pub fn #field_names (self) -> #crate_name::QueryBuilder<Self, #field_types> {
+                    use #crate_name::GeneralQueryBuilder;
+                    #crate_name::QueryBuilder::with_query(self, |param, mut this| {
+                        if this.#field_names.is_some() {
+                            println!("anondb: warning, param already set; {}", stringify!(#field_names));
+                        }
+                        this.#field_names = Some(param);
+                        this
+                    })
                 }
             )*
         }
 
         impl #impl_generics #crate_name::Query for #query_struct_name #ty_generics #where_clause {
             /// Get a vector containing the fields that have been set.
-            fn fields(&self) -> Vec<(&'static str, #crate_name::Param)> {
+            fn serialize(&self) -> Vec<(&'static str, #crate_name::QueryParam<Vec<u8>>)> {
                 let mut out = Vec::with_capacity(#field_count);
                 #(
                     if let Some(param) = self.#field_names.as_ref() {
-                        out.push((stringify!(#field_names), param.into()));
+                        out.push((stringify!(#field_names), param.serialize()));
                     }
                 )*
                 out
@@ -230,8 +236,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         impl #phantom_struct_name {
             #(
-                pub fn #field_names() -> ::std::marker::PhantomData<#field_types> {
-                    ::std::marker::PhantomData::<#field_types>
+                pub fn #field_names() -> #crate_name::OwnedLexStats {
+                    <#field_types as #crate_name::LexStats>::to_owned()
                 }
             )*
         }

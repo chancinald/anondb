@@ -11,12 +11,12 @@ pub struct PrimaryIndex<T> {
     serialize_fn: Arc<fn(&T, bool) -> (Vec<u8>, Option<Vec<u8>>)>,
     deserialize_fn: Arc<fn(&[u8], &[u8]) -> T>,
     /// The field names of the document type along with the byte length (if constant)
-    key_fields: Arc<Vec<(String, LexStats)>>,
+    key_fields: Arc<Vec<(String, OwnedLexStats)>>,
 }
 
 impl<T> PrimaryIndex<T> {
     pub fn new(
-        key_fields: Vec<(String, LexStats)>,
+        key_fields: Vec<(String, OwnedLexStats)>,
         serialize_fn: fn(&T, bool) -> (Vec<u8>, Option<Vec<u8>>),
         deserialize_fn: fn(&[u8], &[u8]) -> T,
     ) -> Self {
@@ -27,7 +27,7 @@ impl<T> PrimaryIndex<T> {
         }
     }
 
-    pub fn fields(&self) -> &Vec<(String, LexStats)> {
+    pub fn fields(&self) -> &Vec<(String, OwnedLexStats)> {
         self.key_fields.as_ref()
     }
 

@@ -10,6 +10,7 @@ pub struct TestDocument {
     str_1: String,
     bytes: Vec<u8>,
     i: u32,
+    u: u8,
     b: bool,
     bytes_maybe: Option<Vec<u8>>,
     str_maybe: Option<String>,
@@ -24,6 +25,7 @@ impl Default for TestDocument {
             str_1: rand_utf8(rand::random_range(20..22)),
             bytes: rand_bytes(rand::random_range(50..100)),
             i: rand::random(),
+            u: rand::random(),
             b: rand::random(),
             r: rand::random(),
             bytes_maybe: if rand::random::<bool>() {
@@ -39,6 +41,122 @@ impl Default for TestDocument {
             slice: rand::random(),
         }
     }
+}
+
+#[tokio::test]
+async fn prefix_scan_independent() -> Result<()> {
+    #[derive(AnonDB)]
+    pub struct DB<K: KV> {
+        #[anondb(primary_key = u, r)]
+        test: Collection<TestDocument, K>,
+    }
+
+    let db = DB::<MemoryKV>::new(None).await?;
+    let mut tree = BTreeMap::new();
+
+    for _ in 0..1024 {
+        let doc = TestDocument::default();
+        db.test.insert(&doc).await?;
+        tree.insert((doc.u, doc.r), ());
+    }
+
+    assert!(
+        db.test
+            .find_one(TestDocument::query().u().range(..0))
+            .await?
+            .is_none()
+    );
+
+    for u in [rand::random(), rand::random(), 0, 255, 254, 1] {
+        let query = TestDocument::query().u().range(u..);
+        let query = db.test.find_many(query).await?;
+        let stream = std::pin::pin!(query);
+        let docs = stream.try_collect::<Vec<_>>().await?;
+        let filtered_tree = tree.keys().filter(|k| k.0 >= u).collect::<Vec<_>>();
+        assert_eq!(docs.len(), filtered_tree.len());
+        for (doc, key) in docs.into_iter().zip(filtered_tree.into_iter()) {
+            assert_eq!(doc.u, key.0, concat!("mismatch on field `u`"));
+            assert_eq!(doc.r, key.1, concat!("mismatch on field `r`"));
+        }
+
+        let query = TestDocument::query().u().range(..u);
+        let query = db.test.find_many(query).await?;
+        let stream = std::pin::pin!(query);
+        let docs = stream.try_collect::<Vec<_>>().await?;
+        let filtered_tree = tree.keys().filter(|k| k.0 < u).collect::<Vec<_>>();
+        assert_eq!(docs.len(), filtered_tree.len());
+        for (doc, key) in docs.into_iter().zip(filtered_tree) {
+            assert_eq!(doc.u, key.0, concat!("mismatch on field `u`"));
+            assert_eq!(doc.r, key.1, concat!("mismatch on field `r`"));
+        }
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn simple_order_range() -> Result<()> {
+    #[derive(AnonDB)]
+    pub struct DB<K: KV> {
+        #[anondb(primary_key = i, r)]
+        test: Collection<TestDocument, K>,
+    }
+
+    let db = DB::<RedbKV>::new(None).await?;
+    let mut tree = BTreeMap::new();
+
+    for _ in 0..100 {
+        let doc = TestDocument::default();
+        db.test.insert(&doc).await?;
+        tree.insert((doc.i, doc.r), ());
+    }
+
+    let query = db.test.find_many(TestDocument::query()).await?;
+    let stream = std::pin::pin!(query);
+    let docs = stream.try_collect::<Vec<_>>().await?;
+    for (doc, (key, _)) in docs.into_iter().zip(tree.clone().into_iter()) {
+        let (i, r) = key;
+        assert_eq!(doc.i, i, concat!("mismatch on field `i`"));
+        assert_eq!(doc.r, r, concat!("mismatch on field `r`"));
+    }
+
+    let doc = TestDocument::default();
+    let tree_range_start = (doc.i, doc.r);
+    let query = TestDocument::query().i().range(doc.i..).r().range(doc.r..);
+    let query = db.test.find_many(query).await?;
+    let stream = std::pin::pin!(query);
+    let docs = stream.try_collect::<Vec<_>>().await?;
+    let filtered_tree = tree
+        .keys()
+        .filter(|k| k.0 >= tree_range_start.0 && k.1 >= tree_range_start.1)
+        .collect::<Vec<_>>();
+    assert_eq!(filtered_tree.len(), docs.len());
+    // we cannot use plain lexicographic sorting of the BTreeMap because
+    // querying the indices separately is different than querying a lexicographic
+    // range. Instead we're querying a rectangular space formed over the fields independently
+    for (doc, key) in docs.into_iter().zip(filtered_tree.into_iter()) {
+        let (i, r) = key;
+        assert_eq!(doc.i, *i, concat!("mismatch on field `i`"));
+        assert_eq!(doc.r, *r, concat!("mismatch on field `r`"));
+    }
+
+    let query = TestDocument::query().i().range(..doc.i).r().range(..doc.r);
+    let query = db.test.find_many(query).await?;
+    let stream = std::pin::pin!(query);
+    let docs = stream.try_collect::<Vec<_>>().await?;
+    let filtered_tree = tree
+        .keys()
+        .filter(|k| k.0 < tree_range_start.0 && k.1 < tree_range_start.1)
+        .collect::<Vec<_>>();
+
+    assert_eq!(filtered_tree.len(), docs.len());
+    for (doc, key) in docs.into_iter().zip(filtered_tree.into_iter()) {
+        let (i, r) = key;
+        assert_eq!(doc.i, *i, concat!("mismatch on field `i`"));
+        assert_eq!(doc.r, *r, concat!("mismatch on field `r`"));
+    }
+
+    Ok(())
 }
 
 macro_rules! test_permutation {
@@ -75,24 +193,30 @@ macro_rules! test_permutation {
                     )+
                 }
 
-                // let doc = TestDocument::default();
-                // let tree_range_start = ($(doc.$field.clone(),)+);
-                // let query = TestDocument::query()
-                // $(
-                //     . $field (ParamTyped::Range((doc.$field.clone() ..).into()))
-                // )+ ;
-                // let query = db.test.find_many(query).await?;
-                // let stream = std::pin::pin!(query);
-                // let docs = stream.try_collect::<Vec<_>>().await?;
-                // for (doc, (key, _)) in docs.into_iter().zip(tree.range(tree_range_start..)) {
-                //     let ($($field,)+) = key;
-                //     $(
-                //         assert_eq!(
-                //             doc.$field.clone(), $field.clone(),
-                //             concat!("mismatch on field `", stringify!($field), "`")
-                //         );
-                //     )+
-                // }
+                let range_start = TestDocument::default();
+                let query = TestDocument::query()
+                $(
+                    . $field ().range(range_start.$field.clone() ..)
+                )+ ;
+                let query = db.test.find_many(query).await?;
+                let stream = std::pin::pin!(query);
+                let docs = stream.try_collect::<Vec<_>>().await?;
+                let filtered_tree = tree.keys().filter(|k| {
+                    let ($($field,)+) = k;
+                    $(
+                        $field >= &range_start.$field
+                    )&&*
+                }).collect::<Vec<_>>();
+                assert_eq!(docs.len(), filtered_tree.len());
+                for (doc, key) in docs.into_iter().zip(filtered_tree.into_iter()) {
+                    let ($($field,)+) = key;
+                    $(
+                        assert_eq!(
+                            doc.$field.clone(), $field.clone(),
+                            concat!("mismatch on field `", stringify!($field), "`")
+                        );
+                    )+
+                }
 
                 Ok(())
             }

@@ -3,15 +3,14 @@ use std::marker::PhantomData;
 use anyhow::Result;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct LexStats {
+pub struct OwnedLexStats {
     pub min: Vec<u8>,
     pub max: Option<Vec<u8>>,
     pub fixed_width: Option<u32>,
 }
 
 /// Allow a type to be serialized to lexicographically comparable bytes
-pub trait SerializeLexicographic: Sized {
-    fn serialize_lex(&self) -> Vec<u8>;
+pub trait LexStats {
     fn min() -> Vec<u8>;
     fn max() -> Option<Vec<u8>> {
         None
@@ -19,16 +18,19 @@ pub trait SerializeLexicographic: Sized {
     fn fixed_width() -> Option<u32> {
         None
     }
-    fn stats(&self) -> LexStats {
-        LexStats {
+    fn to_owned() -> OwnedLexStats {
+        OwnedLexStats {
             min: Self::min(),
             max: Self::max(),
             fixed_width: Self::fixed_width(),
         }
     }
 }
+pub trait SerializeLexicographic {
+    fn serialize_lex(&self) -> Vec<u8>;
+}
 
-pub trait DeserializeLexicographic: SerializeLexicographic {
+pub trait DeserializeLexicographic: SerializeLexicographic + LexStats + Sized {
     fn deserialize(bytes: &[u8], len_maybe: Option<usize>) -> Result<(Self, &[u8])> {
         let len = match (Self::fixed_width(), len_maybe) {
             (Some(_), Some(_)) => {
@@ -49,14 +51,16 @@ pub trait DeserializeLexicographic: SerializeLexicographic {
     fn from_bytes(bytes: &[u8]) -> Result<Self>;
 }
 
-impl<T: SerializeLexicographic> SerializeLexicographic for Option<T> {
+impl<T: SerializeLexicographic + LexStats> SerializeLexicographic for Option<T> {
     fn serialize_lex(&self) -> Vec<u8> {
         match self {
             Some(v) => vec![vec![0x01], SerializeLexicographic::serialize_lex(v)].concat(),
             None => vec![0x00],
         }
     }
+}
 
+impl<T: LexStats> LexStats for Option<T> {
     fn min() -> Vec<u8> {
         vec![0x00]
     }
@@ -83,7 +87,9 @@ impl SerializeLexicographic for bool {
     fn serialize_lex(&self) -> Vec<u8> {
         if *self { vec![0x01] } else { vec![0x00] }
     }
+}
 
+impl LexStats for bool {
     fn min() -> Vec<u8> {
         vec![0x00]
     }
@@ -111,7 +117,9 @@ impl SerializeLexicographic for Vec<u8> {
     fn serialize_lex(&self) -> Vec<u8> {
         self.clone()
     }
+}
 
+impl LexStats for Vec<u8> {
     fn min() -> Vec<u8> {
         vec![]
     }
@@ -127,7 +135,9 @@ impl SerializeLexicographic for String {
     fn serialize_lex(&self) -> Vec<u8> {
         self.as_bytes().to_vec()
     }
+}
 
+impl LexStats for String {
     fn min() -> Vec<u8> {
         vec![]
     }
@@ -143,7 +153,9 @@ impl SerializeLexicographic for &str {
     fn serialize_lex(&self) -> Vec<u8> {
         self.as_bytes().to_vec()
     }
+}
 
+impl LexStats for &str {
     fn min() -> Vec<u8> {
         vec![]
     }
@@ -153,7 +165,9 @@ impl SerializeLexicographic for &String {
     fn serialize_lex(&self) -> Vec<u8> {
         self.as_bytes().to_vec()
     }
+}
 
+impl LexStats for &String {
     fn min() -> Vec<u8> {
         vec![]
     }
@@ -165,7 +179,9 @@ macro_rules! lex_uint {
             fn serialize_lex(&self) -> Vec<u8> {
                 self.to_be_bytes().to_vec()
             }
+        }
 
+        impl LexStats for &$int {
             fn min() -> Vec<u8> {
                 $int::MIN.to_be_bytes().to_vec()
             }
@@ -189,17 +205,19 @@ macro_rules! lex_uint {
             fn serialize_lex(&self) -> Vec<u8> {
                 (&self).serialize_lex()
             }
+        }
 
+        impl LexStats for $int {
             fn min() -> Vec<u8> {
-                <&$int as SerializeLexicographic>::min()
+                <&$int as LexStats>::min()
             }
 
             fn max() -> Option<Vec<u8>> {
-                <&$int as SerializeLexicographic>::max()
+                <&$int as LexStats>::max()
             }
 
             fn fixed_width() -> Option<u32> {
-                <&$int as SerializeLexicographic>::fixed_width()
+                <&$int as LexStats>::fixed_width()
             }
         }
 
@@ -234,7 +252,8 @@ impl<const N: usize> SerializeLexicographic for [u8; N] {
         let _ = AssertSize::<N>::OK;
         self.to_vec()
     }
-
+}
+impl<const N: usize> LexStats for [u8; N] {
     fn min() -> Vec<u8> {
         vec![0u8; N]
     }
@@ -260,6 +279,9 @@ impl<T: SerializeLexicographic> SerializeLexicographic for PhantomData<T> {
     fn serialize_lex(&self) -> Vec<u8> {
         unreachable!()
     }
+}
+
+impl<T: LexStats> LexStats for PhantomData<T> {
     fn min() -> Vec<u8> {
         T::min()
     }
@@ -276,6 +298,9 @@ impl SerializeLexicographic for () {
     fn serialize_lex(&self) -> Vec<u8> {
         unreachable!()
     }
+}
+
+impl LexStats for () {
     fn min() -> Vec<u8> {
         vec![]
     }

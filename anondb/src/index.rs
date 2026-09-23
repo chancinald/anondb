@@ -8,7 +8,7 @@ use super::*;
 
 pub trait AnyIndex {
     fn collection_name(&self) -> &str;
-    fn field_names(&self) -> &Vec<(String, LexStats)>;
+    fn field_names(&self) -> &Vec<(String, OwnedLexStats)>;
     fn options(&self) -> &IndexOptions;
     fn kv_table_name(&self) -> &str;
 }
@@ -20,7 +20,7 @@ where
     fn collection_name(&self) -> &str {
         &self.collection_name
     }
-    fn field_names(&self) -> &Vec<(String, LexStats)> {
+    fn field_names(&self) -> &Vec<(String, OwnedLexStats)> {
         &self.field_names
     }
     fn options(&self) -> &IndexOptions {
@@ -46,7 +46,7 @@ where
     /// The name of the database collection the index belongs to.
     collection_name: String,
     /// The field names of the document type along with the byte length (if constant)
-    pub(crate) field_names: Vec<(String, LexStats)>,
+    pub(crate) field_names: Vec<(String, OwnedLexStats)>,
     /// Take a document of type `T` and serialize it into a lexicographically sortable key
     pub(crate) serialize_key: Arc<fn(&T) -> Vec<u8>>,
     /// Options for the index
@@ -60,7 +60,7 @@ where
 {
     pub fn new(
         collection_name: String,
-        field_names: Vec<(String, LexStats)>,
+        field_names: Vec<(String, OwnedLexStats)>,
         serialize: fn(&T) -> Vec<u8>,
         options: IndexOptions,
     ) -> Self {
@@ -87,7 +87,7 @@ where
         }
     }
 
-    pub(crate) fn field_names(&self) -> &Vec<(String, LexStats)> {
+    pub(crate) fn field_names(&self) -> &Vec<(String, OwnedLexStats)> {
         &self.field_names
     }
 

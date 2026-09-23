@@ -54,7 +54,7 @@ impl IndexDef {
                         vec![#(
                             (
                                 stringify!(#fields).to_string(),
-                                <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().stats()
+                                <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields()
                              )
                             ),*
                         ],
@@ -66,7 +66,7 @@ impl IndexDef {
                                 {
                                     let v = maybe_struct.#fields.take().expect("field already taken");
                                     let bytes = #crate_name::SerializeLexicographic::serialize_lex(&v);
-                                    if full_doc && <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().stats().fixed_width.is_none() {
+                                    if full_doc && <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().fixed_width.is_none() {
                                         len_buf = #crate_name::postcard::to_extend(&(bytes.len() as u64), len_buf).unwrap();
                                     }
                                     key.append_key_vec(bytes);
@@ -82,7 +82,7 @@ impl IndexDef {
                             let mut maybe_struct = <<#doc_generic as #crate_name::Maybe>::MaybeStruct>::default();
                             #(
                                 {
-                                    let len_maybe = if <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().stats().fixed_width.is_none() {
+                                    let len_maybe = if <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().fixed_width.is_none() {
                                         let (len, rem) = #crate_name::postcard::take_from_bytes::<'_, u64>(value).unwrap();
                                         value = rem;
                                         Some(len as usize)
@@ -116,7 +116,7 @@ impl IndexDef {
                         vec![#(
                             (
                                 stringify!(#fields).to_string(),
-                                <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().stats()
+                                <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields()
                              )
                             ),*
                         ],

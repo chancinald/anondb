@@ -37,7 +37,7 @@ async fn should_use_non_unique_index() -> Result<()> {
 
     let out = db
         .other_collection
-        .find_many(OtherDocument::query().other(0..))
+        .find_many(OtherDocument::query().other().range(0..))
         .await?
         .try_collect::<Vec<_>>()
         .await?;

@@ -16,7 +16,7 @@ async fn should_insert_and_retrieve_documents() -> Result<()> {
     }
     let query = db
         .test
-        .find_many(BigTestDocument::query().id3(99..u128::MAX))
+        .find_many(BigTestDocument::query().id3().range(99..u128::MAX))
         .await?;
     let stream = std::pin::pin!(query);
     let docs = stream.try_collect::<Vec<_>>().await?;

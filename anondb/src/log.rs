@@ -35,7 +35,7 @@ pub(crate) const PREFIX: &'static str = "";
 macro_rules! warn_ {
     ($($input:expr),*) => {
         #[cfg(test)]
-        std::sync::LazyLock::<()>::force(&log::test:::SETUP);
+        std::sync::LazyLock::<()>::force(&log::test::SETUP);
         let msg = format!($($input,)*);
         // log::send_log(&msg);
         // always print, even if no logging backend is connected

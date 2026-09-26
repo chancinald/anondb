@@ -31,6 +31,9 @@ use anondb_kv;
 pub use anondb_kv::*;
 pub use anondb_macros::AnonDB;
 pub use anondb_macros::Document;
+pub mod result {
+    pub use anyhow::Result;
+}
 
 pub use futures;
 pub use postcard;

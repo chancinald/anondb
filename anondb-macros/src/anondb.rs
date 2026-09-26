@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::Result;
-use syn::*;
 
 use super::*;
 
@@ -79,6 +78,15 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
     });
 
+    let collection_names = field_meta
+        .iter()
+        .map(|(collection_name, _)| collection_name.clone())
+        .collect::<Vec<_>>();
+    let collection_types = field_meta
+        .iter()
+        .map(|(_collection_name, meta)| meta.doc_generic.clone())
+        .collect::<Vec<_>>();
+
     // the concrete KV implementation for the database
     let kv_generic_name = get_kv_generic(&input)?;
 
@@ -90,18 +98,45 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
     // the name of the database struct
     let name = &input.ident;
+    // the name of the write transaction struct
+    let name_write = quote::format_ident!("{}Write", name);
 
     // types on the struct
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     let expanded = quote! {
+        pub struct #name_write #impl_generics #where_clause {
+            tx: #kv_generic_name::WriteTransaction,
+            db: #name #ty_generics,
+        }
+
+        impl #impl_generics #name_write #ty_generics #where_clause {
+            pub async fn commit(self) -> #crate_name::result::Result<()> {
+                self.tx.commit().await
+            }
+
+            #(
+                pub fn #collection_names(&self) -> #crate_name::CollectionWrite<#collection_types, #kv_generic_name> {
+                    #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx)
+                }
+            )*
+        }
+
+        const _: fn() = || {
+            fn assert_impl<#name: Clone>() {}
+        };
+
         impl #impl_generics #name #ty_generics #where_clause {
             /// Initialize the database backed by a kv, optionally providing a config.
-            pub async fn new(config_maybe: Option<#kv_generic_name::Config>) -> Result<Self> {
+            pub async fn new(config_maybe: Option<#kv_generic_name::Config>) -> #crate_name::result::Result<Self> {
                 let kv = #kv_generic_name::new(config_maybe).await?;
                 Ok(Self {
                     #(#collections)*
                 })
+            }
+
+            pub async fn write_tx(&self) -> #crate_name::result::Result<#name_write #ty_generics> {
+                Ok(#name_write { tx: self.kv().write_tx().await?, db: self.clone() })
             }
 
             pub fn kv(&self) -> #kv_generic_name {

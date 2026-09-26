@@ -12,18 +12,17 @@ pub struct OtherDocument {
     pub other: u64,
 }
 
-#[derive(AnonDB)]
-pub struct DB<K: KV> {
-    #[anondb(primary_key = id)]
-    #[anondb(index = id, other; unique = true)]
-    pub test_collection: Collection<TestDocument2, K>,
-    #[anondb(primary_key = id)]
-    #[anondb(index = other)]
-    pub _other_collection: Collection<OtherDocument, K>,
-}
-
 #[tokio::test]
 async fn should_fail_to_insert_duplicate_primary_key() -> Result<()> {
+    #[derive(Clone, AnonDB)]
+    pub struct DB<K: KV> {
+        #[anondb(primary_key = id)]
+        #[anondb(index = id, other; unique = true)]
+        pub test_collection: Collection<TestDocument2, K>,
+        #[anondb(primary_key = id)]
+        #[anondb(index = other)]
+        pub _other_collection: Collection<OtherDocument, K>,
+    }
     let db = DB::<MemoryKV>::new(None).await?;
 
     let doc = TestDocument2 {
@@ -41,7 +40,7 @@ async fn should_fail_to_insert_duplicate_primary_key() -> Result<()> {
 
 #[tokio::test]
 async fn compound_primary_key() -> Result<()> {
-    #[derive(AnonDB)]
+    #[derive(Clone, AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0, id1, id2)]
         pub test: Collection<BigTestDocument, K>,

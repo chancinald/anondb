@@ -45,7 +45,7 @@ impl Default for TestDocument {
 
 #[tokio::test]
 async fn prefix_scan_independent() -> Result<()> {
-    #[derive(AnonDB)]
+    #[derive(Clone, AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = u, r)]
         test: Collection<TestDocument, K>,
@@ -96,7 +96,7 @@ async fn prefix_scan_independent() -> Result<()> {
 
 #[tokio::test]
 async fn simple_order_range() -> Result<()> {
-    #[derive(AnonDB)]
+    #[derive(Clone, AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = i, r)]
         test: Collection<TestDocument, K>,
@@ -164,7 +164,7 @@ macro_rules! test_permutation {
         paste::paste! {
             #[tokio::test]
             async fn [<order_compound_index $(_ $field)+>]() -> Result<()> {
-                #[derive(AnonDB)]
+                #[derive(Clone, AnonDB)]
                 pub struct DB<K: KV> {
                     #[anondb(primary_key = $($field),+)]
                     test: Collection<TestDocument, K>,

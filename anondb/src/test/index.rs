@@ -14,7 +14,7 @@ pub struct OtherDocument {
     pub other: u64,
 }
 
-#[derive(AnonDB)]
+#[derive(Clone, AnonDB)]
 pub struct DB<K: KV> {
     #[anondb(primary_key = id)]
     #[anondb(index = id, other; unique = true)]
@@ -64,7 +64,7 @@ async fn should_automatically_rebuild_indices() -> Result<()> {
         }
     }
     let (db_path, orig_table_count) = {
-        #[derive(AnonDB)]
+        #[derive(Clone, AnonDB)]
         pub struct DB<K: KV> {
             #[anondb(primary_key = id)]
             #[anondb(index = id, other; unique = true)]
@@ -84,7 +84,7 @@ async fn should_automatically_rebuild_indices() -> Result<()> {
             orig_table_count,
         )
     };
-    #[derive(AnonDB)]
+    #[derive(Clone, AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id)]
         #[anondb(index = id, other)]

@@ -4,7 +4,7 @@ use super::*;
 
 #[tokio::test]
 async fn should_insert_and_retrieve_documents() -> Result<()> {
-    #[derive(AnonDB)]
+    #[derive(Clone, AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0)]
         #[anondb(index = id1, id2, id3, id4; unique = true)]

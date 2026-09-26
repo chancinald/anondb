@@ -12,7 +12,7 @@ pub struct OtherDocument {
     pub other: u64,
 }
 
-#[derive(AnonDB)]
+#[derive(Clone, AnonDB)]
 pub struct DB<K: KV> {
     #[anondb(primary_key = id)]
     #[anondb(index = id, other; unique = true)]

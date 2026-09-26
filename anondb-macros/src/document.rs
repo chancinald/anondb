@@ -140,7 +140,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                         Vec<String>,
                         Vec<u8>
                     ) ->
-                            Result<(Vec<(String, Vec<u8>)>, Vec<String>, Vec<u8>),
+                            #crate_name::result::Result<(Vec<(String, Vec<u8>)>, Vec<String>, Vec<u8>),
                             #crate_name::MigrationError>] {
                         #fn_name ()
                     }

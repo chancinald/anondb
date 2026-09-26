@@ -62,7 +62,7 @@ async fn should_fail_bad_collection_name() -> Result<()> {
         pub id: u128,
     }
 
-    #[derive(Debug, AnonDB)]
+    #[derive(Debug, Clone, AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id)]
         pub ___test_collection: Collection<BigTestDocument, K>,

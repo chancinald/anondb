@@ -47,7 +47,7 @@ fn migrations1<'a>() -> &'static [fn(
 #[tokio::test]
 async fn migration_add_field() -> Result<()> {
     let db_path = {
-        #[derive(AnonDB)]
+        #[derive(Clone, AnonDB)]
         pub struct DB1<K: KV> {
             #[anondb(primary_key = id0, id1)]
             pub test: Collection<TestDocumentV0, K>,
@@ -58,7 +58,7 @@ async fn migration_add_field() -> Result<()> {
         }
         db.test.kv().db_path().to_path_buf()
     };
-    #[derive(AnonDB)]
+    #[derive(Clone, AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0, id1)]
         pub test: Collection<TestDocumentV1, K>,

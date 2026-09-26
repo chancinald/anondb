@@ -1,3 +1,9 @@
+mod any;
+mod write_tx;
+
+pub use any::*;
+pub use write_tx::*;
+
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
@@ -9,81 +15,7 @@ use futures::future::Either;
 use super::*;
 
 const DESCRIPTION_KEY: &'static [u8] = "description".as_bytes();
-
-pub trait AnyCollection<K: KV>: Send + Sync {
-    fn name(&self) -> &str;
-    fn indices(&self) -> Vec<Box<dyn AnyIndex>>;
-    fn metatable(&self) -> String {
-        format!("{NAME_SEPARATOR}metadata_{}", self.name())
-    }
-    fn description(
-        &self,
-    ) -> std::pin::Pin<Box<dyn Future<Output = Result<CollectionDescription>> + Send + Sync>> {
-        let kv = self.kv();
-        let metatable = self.metatable();
-        Box::pin(async move {
-            if let Some(item) = kv.get(&metatable, DESCRIPTION_KEY).await? {
-                Ok(postcard::from_bytes(&item.value().await)?)
-            } else {
-                anyhow::bail!("description document is not set")
-            }
-        })
-    }
-    fn primary_key_field_names(&self) -> &Vec<(String, OwnedLexStats)>;
-    fn kv(&self) -> K;
-    fn parse_key_value(
-        &self,
-        key: &[u8],
-        value: &[u8],
-    ) -> Result<(
-        Vec<(String, String, Box<dyn ValidDBType>)>,
-        BTreeMap<String, (String, Box<dyn ValidDBType>)>,
-    )>;
-}
-
-impl<T, K: KV> AnyCollection<K> for Collection<T, K>
-where
-    T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
-{
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn indices(&self) -> Vec<Box<dyn AnyIndex>> {
-        self.indices
-            .iter()
-            .cloned()
-            .map(|v| Box::new(v) as Box<dyn AnyIndex>)
-            .collect::<Vec<_>>()
-    }
-
-    fn primary_key_field_names(&self) -> &Vec<(String, OwnedLexStats)> {
-        self.primary_index.fields()
-    }
-
-    fn kv(&self) -> K {
-        self.kv.clone()
-    }
-
-    fn parse_key_value(
-        &self,
-        key: &[u8],
-        value: &[u8],
-    ) -> Result<(
-        Vec<(String, String, Box<dyn ValidDBType>)>,
-        BTreeMap<String, (String, Box<dyn ValidDBType>)>,
-    )> {
-        let mut entries = self.primary_index.deserialize(key, value).into_map();
-        let mut key_entries = Vec::with_capacity(self.primary_key_field_names().len());
-        for (name, _) in self.primary_key_field_names().iter() {
-            let entry = entries
-                .remove(name)
-                .expect("should contain primary key entry");
-            key_entries.push((name.to_string(), entry.0, entry.1));
-        }
-        Ok((key_entries, entries))
-    }
-}
+const MONOTONIC_ID_KEY: &'static [u8] = "monotonic".as_bytes();
 
 #[derive(Debug, Clone)]
 pub struct Collection<T, K: KV>
@@ -125,12 +57,22 @@ where
         <Self as AnyCollection<K>>::metatable(self)
     }
 
+    /// Retrieve a monotonic id specific to this table.
+    pub async fn monotonic_id(&self) -> Result<u64> {
+        let write_tx = self.kv.write_tx().await?;
+        let write = CollectionWrite::new(&self, &write_tx);
+        let id = write.monotonic_id().await?;
+        write_tx.commit().await?;
+        Ok(id)
+    }
+
     async fn migrate_if_needed(self) -> Result<Self> {
         log::info!("initializing collection: \"{}\"", self.name);
         if !self.indices.is_empty() {
             log::info!("non-primary indices: {}", self.indices.len());
         }
         let write_tx = self.kv.write_tx().await?;
+        let write = CollectionWrite::new(&self, &write_tx);
         let metatable = self.metatable();
         // version is determined by number of migrations defined
         // this is the version of our implementation
@@ -176,11 +118,9 @@ where
                 read_tx.count(&self.name).await?
             );
             // wipe the collection and indices for the current transaction
-            write_tx.clear(&self.name).await?;
+            write.clear().await?;
             assert_eq!(write_tx.count(&self.name).await?, 0);
             for index in &self.indices {
-                // drop the indices and rebuild during migration
-                index.clear(&write_tx).await?;
                 assert_eq!(write_tx.count(index.kv_table_name()).await?, 0);
             }
             let value_fields = existing_description
@@ -252,7 +192,7 @@ where
                 // TODO: perhaps don't fail if indices conflict in production
                 // fall back to non-accelerated queries to prevent application crashes
                 // always fail fast during development
-                self.insert_with_tx(&write_tx, new_doc).await?;
+                write.insert(new_doc).await?;
             }
             // update the metadata document
             write_tx
@@ -354,59 +294,36 @@ where
         self.kv.count(&self.name).await
     }
 
-    pub(crate) async fn insert_with_tx(
-        &self,
-        tx: &impl WriteTx,
-        document: impl Borrow<T> + Send + Sync,
-    ) -> Result<()> {
-        let (primary_key, doc) = self.primary_index.serialize_key_doc(document.borrow());
-        if tx.get(&self.name, &primary_key).await?.is_some() {
-            anyhow::bail!(
-                "Collection \"{}\" cannot insert document, primary key uniqueness constraint violated",
-                self.name,
-            );
-        }
-        tx.insert(&self.name, &primary_key, &doc).await?;
-        for index in &self.indices {
-            index.insert(tx, document.borrow(), &primary_key).await?;
-        }
-        Ok(())
-    }
-
     /// Batch insert many documents into a collection in a single
     /// atomic transaction.
     pub async fn insert_many<B>(&self, document_iter: impl Iterator<Item = B>) -> Result<()>
     where
         B: Borrow<T> + Send + Sync,
     {
-        let tx = self.kv.write_tx().await?;
+        let write_tx = self.kv.write_tx().await?;
+        let write = CollectionWrite::new(&self, &write_tx);
         for item in document_iter {
-            self.insert_with_tx(&tx, item).await?;
+            write.insert(item).await?;
         }
-        tx.commit().await?;
+        write_tx.commit().await?;
         Ok(())
     }
 
     /// Insert a document into a collection. All relevant indices will be updated.
     pub async fn insert(&self, document: impl Borrow<T> + Send + Sync) -> Result<()> {
-        let tx = self.kv.write_tx().await?;
-        self.insert_with_tx(&tx, document).await?;
-        tx.commit().await?;
+        let write_tx = self.kv.write_tx().await?;
+        let write = CollectionWrite::new(&self, &write_tx);
+        write.insert(document).await?;
+        write_tx.commit().await?;
         Ok(())
     }
 
     /// Insert or replace a document in the collection.
     pub async fn upsert(&self, document: impl Borrow<T> + Send + Sync) -> Result<()> {
-        let primary_key = self.primary_index.serialize_key(document.borrow());
-        let tx = self.kv.write_tx().await?;
-        if let Some(out) = tx.remove(&self.name, &primary_key).await? {
-            let doc = self.primary_index.deserialize(&primary_key, &out);
-            for index in self.indices.iter() {
-                index.delete(&tx, &doc, &primary_key).await?;
-            }
-        }
-        self.insert_with_tx(&tx, document).await?;
-        tx.commit().await?;
+        let write_tx = self.kv.write_tx().await?;
+        let write = CollectionWrite::new(&self, &write_tx);
+        write.upsert(document).await?;
+        write_tx.commit().await?;
         Ok(())
     }
 
@@ -419,20 +336,21 @@ where
         update_fn: impl Fn(&T) -> Option<T>,
     ) -> Result<()> {
         let write_tx = self.kv.write_tx().await?;
-        let out = self.find_many(query).await?;
-        let mut stream = std::pin::pin!(out);
-        while let Some(doc) = stream.next().await.transpose()? {
-            if let Some(updated) = update_fn(&doc) {
-                let primary_key = self.primary_index.serialize_key(&doc);
-                write_tx.remove(&self.name, &primary_key).await?;
-                for index in self.indices.iter() {
-                    index.delete(&write_tx, &doc, &primary_key).await?;
-                }
-                self.insert_with_tx(&write_tx, &updated).await?;
-            }
-        }
+        let write = CollectionWrite::new(&self, &write_tx);
+        write.update(query, update_fn).await?;
         write_tx.commit().await?;
         Ok(())
+    }
+
+    pub async fn delete(
+        &self,
+        query: <T as Queryable>::DocumentQuery,
+        delete_fn: impl Fn(&T) -> bool,
+    ) -> Result<()> {
+        let write_tx = self.kv.write_tx().await?;
+        let write = CollectionWrite::new(&self, &write_tx);
+        write.delete(query, delete_fn).await?;
+        write_tx.commit().await
     }
 
     /// Select the index which matches a query best.
@@ -505,6 +423,9 @@ where
     }
 
     pub async fn clear(&self) -> Result<()> {
-        self.kv.clear(&self.name).await
+        let write_tx = self.kv.write_tx().await?;
+        let write = CollectionWrite::new(&self, &write_tx);
+        write.clear().await?;
+        write_tx.commit().await
     }
 }

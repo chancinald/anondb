@@ -78,8 +78,8 @@ impl IndexDef {
             IndexType::Primary => {
                 quote! {
                         {
-                            type DocumentPhantom = <#doc_generic as #crate_name::AutoDocumentTypes>::DocumentPhantom;
-                            type MaybeStruct = <#doc_generic as #crate_name::AutoDocumentTypes>::MaybeStruct;
+                            type DocumentPhantom = <#doc_generic as #crate_name::CollectionDocument>::DocumentPhantom;
+                            type MaybeStruct = <#doc_generic as #crate_name::CollectionDocument>::MaybeStruct;
                             #(
                                 const _: () = assert!(
                                     #is_last_field ||
@@ -149,8 +149,8 @@ impl IndexDef {
             IndexType::Normal => {
                 quote! {
                     {
-                            type DocumentPhantom = <#doc_generic as #crate_name::AutoDocumentTypes>::DocumentPhantom;
-                            type MaybeStruct = <#doc_generic as #crate_name::AutoDocumentTypes>::MaybeStruct;
+                            type DocumentPhantom = <#doc_generic as #crate_name::CollectionDocument>::DocumentPhantom;
+                            type MaybeStruct = <#doc_generic as #crate_name::CollectionDocument>::MaybeStruct;
                         #(
                             const _: () = assert!(
                                 #is_last_field ||

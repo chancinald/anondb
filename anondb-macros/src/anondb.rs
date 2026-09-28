@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::Result;
+use syn::spanned::Spanned;
 
 use super::*;
 
@@ -31,6 +32,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         let doc_generic = get_first_generic(&field.ty)
             .expect("expected field type to have a generic argument")
             .clone();
+        assert_no_generics(&doc_generic)?;
         let field_ident = field.ident.clone().expect("expected field ident to exist");
         let (primary_key_index, indices) = parse_attributes(field)?;
         field_meta.insert(
@@ -122,13 +124,39 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 }
             )*
 
-            pub fn query<'a, T: #crate_name::CollectionDocument + 'static>(&'a self) -> <T as #crate_name::Queryable>::RunnableDocumentQuery<'a, #crate_name::Collection<T,#kv_generic_name>>
-                where
-                    Self: #crate_name::QueryFor<T, #crate_name::Collection<T, #kv_generic_name>>
-            {
-                <Self as #crate_name::QueryFor<T, #crate_name::Collection<T, K>>>::query_for(self)
+            pub fn query<'a, T: #crate_name::CollectionDocument + 'static>(&'a self) -> <T as #crate_name::Queryable>::RunnableDocumentQuery<'a, Self>
+                    where
+                        Self: #crate_name::QueryFor<T, Self> + #crate_name::WriteQueryOperations<T>
+                {
+                    <Self as #crate_name::QueryFor<T, Self>>::query_for(self)
+                }
+        }
+
+
+        #(
+        impl #impl_generics #crate_name::WriteQueryOperations<#collection_types> for #name_write #ty_generics #where_clause {
+            async fn find_exact(&self, query_doc: <#collection_types as Queryable>::DocumentQuery) -> Result<Option<#collection_types>> {
+                #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).find_exact(query_doc).await
+            }
+
+            async fn delete_exact(&self, query_doc: <#collection_types as Queryable>::DocumentQuery) -> Result<Option<#collection_types>> {
+                #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).delete_exact(query_doc).await
+            }
+
+            async fn update_exact(
+                &self,
+                query_doc: <#collection_types as Queryable>::DocumentQuery,
+                update_fn: impl FnOnce(#collection_types) -> #collection_types,
+            ) -> Result<Option<#collection_types>> {
+                #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).update_exact(query_doc, update_fn).await
             }
         }
+                impl #impl_generics #crate_name::QueryFor<#collection_types, Self> for #name_write #ty_generics #where_clause {
+                    fn query_for<'a>(&'a self) -> <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery<'a, Self> {
+                        <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery::new(&self)
+                    }
+                }
+            )*
 
         const _: fn() = || {
             fn assert_impl<#name: Clone>() {}
@@ -158,20 +186,20 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             }
 
             pub fn query<'a, T: #crate_name::CollectionDocument + 'static>(&'a self) -> <T as #crate_name::Queryable>::RunnableDocumentQuery<'a, #crate_name::Collection<T,#kv_generic_name>>
-                where
-                    Self: #crate_name::QueryFor<T, #crate_name::Collection<T, #kv_generic_name>>
-            {
-                <Self as #crate_name::QueryFor<T, #crate_name::Collection<T, K>>>::query_for(self)
-            }
+                    where
+                        Self: #crate_name::QueryFor<T, #crate_name::Collection<T, #kv_generic_name>>
+                {
+                    <Self as #crate_name::QueryFor<T, #crate_name::Collection<T, K>>>::query_for(self)
+                }
         }
 
         #(
-            impl #impl_generics #crate_name::QueryFor<#collection_types, #crate_name::Collection<#collection_types, #kv_generic_name>> for #name #ty_generics #where_clause {
-                fn query_for<'a>(&'a self) -> <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery<'a,#crate_name::Collection<#collection_types, #kv_generic_name>> {
-                    <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery::new(&self.#collection_names)
+                impl #impl_generics #crate_name::QueryFor<#collection_types, #crate_name::Collection<#collection_types, #kv_generic_name>> for #name #ty_generics #where_clause {
+                    fn query_for<'a>(&'a self) -> <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery<'a,#crate_name::Collection<#collection_types, #kv_generic_name>> {
+                        <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery::new(&self.#collection_names)
+                    }
                 }
-            }
-        )*
+            )*
     };
 
     Ok(TokenStream::from(expanded))
@@ -257,4 +285,25 @@ fn get_first_generic(ty: &Type) -> Option<&Type> {
         return None;
     };
     Some(ty)
+}
+
+/// Remove any generics on a type
+fn assert_no_generics(ty: &Type) -> Result<()> {
+    let Type::Path(mut type_path) = ty.clone() else {
+        return Err(Error::new(ty.span(), "Expected type to be a path"));
+    };
+
+    for segment in &mut type_path.path.segments {
+        match segment.arguments {
+            PathArguments::None => {}
+            _ => {
+                return Err(Error::new(
+                    segment.span(),
+                    "Collection generics may not have generic arguments",
+                ));
+            }
+        }
+    }
+
+    Ok(())
 }

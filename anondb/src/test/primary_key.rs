@@ -60,7 +60,8 @@ async fn compound_primary_key() -> Result<()> {
         .expect_err("Should fail to insert duplicate compound primary key");
 
     let doc = db
-        .query::<BigTestDocument>()
+        .test
+        .query()
         .id1(doc0.id1)
         .find_one()
         .await?

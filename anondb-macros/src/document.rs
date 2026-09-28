@@ -204,16 +204,16 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             provider: &'a P,
         }
 
-        impl <'a, P: #crate_name::WriteQueryOperations<#name> + Send + Sync + 'static> #crate_name::RunnableQuery<'a, P> for #runnable_query_struct_name<'a, P> {
+        impl <'a, P: #crate_name::WriteQueryOperations<#name> + Send + Sync> #crate_name::RunnableQuery<'a, P> for #runnable_query_struct_name<'a, P> {
             fn new(provider: &'a P) -> Self {
                 Self {
                     query: Default::default(),
-                    provider: provider,
+                    provider,
                 }
             }
         }
 
-        impl <'a, P: #crate_name::WriteQueryOperations<#name> + Send + Sync + 'static> #runnable_query_struct_name<'a, P> {
+        impl <'a, P: #crate_name::WriteQueryOperations<#name> + Send + Sync> #runnable_query_struct_name<'a, P> {
             #(
                 pub fn #field_names (mut self, value: impl Into<#crate_name::QueryParam<#field_types>>) -> Self {
                     self.query = self.query.#field_names(value);
@@ -234,7 +234,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 self.provider.update_exact(self.query, f).await
             }
         }
-        impl <'a, P: #crate_name::QueryOperations<#name> + Send + Sync + 'static> #runnable_query_struct_name<'a, P> {
+        impl <'a, P: #crate_name::QueryOperations<#name> + Send + Sync + 'a> #runnable_query_struct_name<'a, P> {
             pub async fn find_many(
                 self,
             ) -> #result_type<impl #crate_name::futures::Stream<Item = #result_type<#name>> + Send + Sync> {
@@ -261,14 +261,13 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         #[derive(Default, Clone, Debug)]
         #[allow(non_camel_case_types)]
-        pub struct #query_struct_name #impl_generics #where_clause {
+        pub struct #query_struct_name {
             #(
-                pub #field_names : Option<#crate_name::QueryParam<#field_types>>,
-            )*
-            _phantom: std::marker::PhantomData<(#(#phantom_generics),*)>
+                pub #field_names : Option<#crate_name::QueryParam<#field_types>>
+            ),*
         }
 
-        impl #impl_generics #query_struct_name #ty_generics #where_clause {
+        impl #query_struct_name {
             #(
                 pub fn #field_names (mut self, value: impl Into<#crate_name::QueryParam<#field_types>>) -> Self {
                     if self.#field_names.is_some() {
@@ -280,7 +279,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             )*
         }
 
-        impl #impl_generics Into<#crate_name::Query> for #query_struct_name #ty_generics #where_clause {
+        impl Into<#crate_name::Query> for #query_struct_name {
             fn into(self) -> #crate_name::Query {
                 let mut out = Vec::with_capacity(#field_count);
                 #(
@@ -294,13 +293,10 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         #(#field_constraints)*
 
-        impl #impl_generics #crate_name::CollectionDocument for #name #ty_generics #where_clause {}
-
-        impl #impl_generics #crate_name::AutoDocumentTypes for #name #ty_generics #where_clause {
+        impl #impl_generics #crate_name::CollectionDocument for #name #ty_generics #where_clause {
             type DocumentPhantom = #phantom_struct_name;
-            type MaybeStruct = #maybe_struct_name #ty_generics;
+            type MaybeStruct = #maybe_struct_name;
         }
-
 
         #[derive(Debug)]
         #[allow(non_camel_case_types)]
@@ -321,8 +317,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
 
         impl #impl_generics #crate_name::Queryable for #name #ty_generics #where_clause {
-            type DocumentQuery = #query_struct_name #ty_generics;
-            type RunnableDocumentQuery<'a, P: #crate_name::WriteQueryOperations<Self> + Send + Sync + 'static> = #runnable_query_struct_name<'a, P>;
+            type DocumentQuery = #query_struct_name;
+            type RunnableDocumentQuery<'a, P: #crate_name::WriteQueryOperations<Self> + Send + Sync + 'a> = #runnable_query_struct_name<'a, P>;
 
             fn matches(&self, query: &Self::DocumentQuery) -> bool {
                 #(
@@ -368,12 +364,11 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         #[derive(Debug, Default)]
         #[allow(non_camel_case_types)]
-        pub struct #maybe_struct_name #impl_generics #where_clause {
-            #(pub #field_names : Option<#field_types>,)*
-            _phantom: std::marker::PhantomData<(#(#phantom_generics),*)>
+        pub struct #maybe_struct_name {
+            #(pub #field_names : Option<#field_types>),*
         }
 
-        impl #impl_generics #crate_name::MaybeSer for #maybe_struct_name #ty_generics #where_clause {
+        impl #crate_name::MaybeSer for #maybe_struct_name {
             fn serialize_remaining(mut self) -> #crate_name::postcard::Result<Vec<u8>> {
                 let mut out = Vec::default();
                 #(
@@ -410,18 +405,17 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
 
 
-        impl #impl_generics From<#name #ty_generics> for #maybe_struct_name #ty_generics #where_clause {
+        impl #impl_generics From<#name #ty_generics> for #maybe_struct_name #where_clause {
             fn from(value: #name #ty_generics) -> Self {
                 Self {
                     #(
                         #field_names: Some(value.#field_names),
                     )*
-                    _phantom: std::marker::PhantomData::default()
                 }
             }
         }
 
-        impl #impl_generics Into<#name #ty_generics> for #maybe_struct_name #ty_generics #where_clause {
+        impl #impl_generics Into<#name #ty_generics> for #maybe_struct_name #where_clause {
             fn into(mut self) -> #name #ty_generics {
                 #name {
                     #(

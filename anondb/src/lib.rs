@@ -42,11 +42,7 @@ pub use postcard;
 pub(crate) const NAME_SEPARATOR: &'static str = "___";
 
 pub trait CollectionDocument:
-    AutoDocumentTypes + Queryable + AnyDocument + ParseableDocument + Migrateable
-{
-}
-
-pub trait AutoDocumentTypes
+    Clone + Queryable + AnyDocument + ParseableDocument + Migrateable
 where
     Self: Sized,
 {
@@ -74,9 +70,9 @@ pub trait QueryFor<T: CollectionDocument + 'static, P: WriteQueryOperations<T> +
 }
 
 /// A trait representing a document which may be queried.
-pub trait Queryable: Clone + Send + Sync {
+pub trait Queryable: Send + Sync {
     type DocumentQuery: Clone + Default + Send + Sync + Into<Query>;
-    type RunnableDocumentQuery<'a, P: WriteQueryOperations<Self> + Send + Sync + 'static>: RunnableQuery<'a, P>
+    type RunnableDocumentQuery<'a, P: WriteQueryOperations<Self> + Send + Sync + 'a>: RunnableQuery<'a, P>
         + Send
         + Sync
     where

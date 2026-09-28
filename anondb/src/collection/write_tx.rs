@@ -11,6 +11,10 @@ impl<'a, T: CollectionDocument + 'static, K: KV> CollectionWrite<'a, T, K> {
         Self { tx, collection }
     }
 
+    pub fn query(&'a self) -> T::RunnableDocumentQuery<'a, Self> {
+        T::RunnableDocumentQuery::new(&self)
+    }
+
     /// Return the number of documents in the collection.
     pub async fn count(&self) -> Result<u64> {
         self.tx.count(&self.collection.name).await
@@ -129,9 +133,10 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
     }
 
     async fn delete_exact(&self, query_doc: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
+        if let Some(doc) = self.find_exact(query_doc).await? {
+            // self.delete_exact(query_doc).await
+        }
         unimplemented!()
-        // if let Some(doc) = self.find_exact(query_doc).await? {
-        // }
     }
 
     async fn update_exact(

@@ -14,9 +14,9 @@ pub trait AnyIndex {
     fn parse_index_key(&self, key: &[u8]) -> Vec<(String, String, Box<dyn ValidDBType>)>;
 }
 
-impl<T: AutoDocumentTypes> AnyIndex for Index<T>
+impl<T: CollectionDocument> AnyIndex for Index<T>
 where
-    T: Queryable + AutoDocumentTypes,
+    T: Queryable + CollectionDocument,
 {
     fn collection_name(&self) -> &str {
         &self.collection_name
@@ -51,7 +51,7 @@ pub struct IndexOptions {
 #[derive(Debug, Clone)]
 pub struct Index<T>
 where
-    T: Queryable + AutoDocumentTypes,
+    T: Queryable + CollectionDocument,
 {
     /// The name of the database collection the index belongs to.
     collection_name: String,
@@ -59,7 +59,7 @@ where
     pub(crate) field_names: Vec<(String, OwnedLexStats)>,
     /// Take a document of type `T` and serialize it into a lexicographically sortable key
     pub(crate) serialize_key: Arc<fn(&T) -> Vec<u8>>,
-    pub(crate) deserialize_key: Arc<fn(&[u8]) -> <T as AutoDocumentTypes>::MaybeStruct>,
+    pub(crate) deserialize_key: Arc<fn(&[u8]) -> <T as CollectionDocument>::MaybeStruct>,
     /// Options for the index
     options: IndexOptions,
     kv_table_name: String,
@@ -67,13 +67,13 @@ where
 
 impl<T> Index<T>
 where
-    T: Queryable + AutoDocumentTypes,
+    T: Queryable + CollectionDocument,
 {
     pub fn new(
         collection_name: String,
         field_names: Vec<(String, OwnedLexStats)>,
         serialize: fn(&T) -> Vec<u8>,
-        deserialize: fn(&[u8]) -> <T as AutoDocumentTypes>::MaybeStruct,
+        deserialize: fn(&[u8]) -> <T as CollectionDocument>::MaybeStruct,
         options: IndexOptions,
     ) -> Self {
         assert!(!field_names.is_empty(), "attempting to create empty index");

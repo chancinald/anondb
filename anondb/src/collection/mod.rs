@@ -22,7 +22,6 @@ pub trait QueryOperations<T: CollectionDocument>:
 }
 
 pub trait ReadWriteQueryOperations<T: CollectionDocument> {
-    // fn count(&self) -> impl Future<Output = Result<u64>>;
     fn find_many(
         &self,
         query: <T as Queryable>::DocumentQuery,

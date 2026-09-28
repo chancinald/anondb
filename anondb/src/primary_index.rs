@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::*;
@@ -12,6 +13,34 @@ pub struct PrimaryIndex<T: AutoDocumentTypes> {
     deserialize_fn: Arc<fn(&[u8]) -> <T as AutoDocumentTypes>::MaybeStruct>,
     /// The field names of the document type along with the byte length (if constant)
     key_fields: Arc<Vec<(String, OwnedLexStats)>>,
+}
+
+impl<T: AutoDocumentTypes> PrimaryIndex<T> {
+    /// Try to serialize a query into an exact document in the index,
+    /// if possible.
+    pub fn key_maybe(&self, query: &Query) -> Option<Vec<u8>> {
+        if query.fields.len() < self.key_fields.len() {
+            return None;
+        }
+        let mut key = LexicographicKey::default();
+        for (name, _) in self.key_fields.iter() {
+            if let Some(bytes) = query.fields.iter().find_map(|(qname, param)| match param {
+                QueryParam::Eq(bytes) => {
+                    if *qname == name.as_str() {
+                        Some(bytes)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }) {
+                key.append_key_slice(bytes);
+            } else {
+                return None;
+            }
+        }
+        Some(key.into_vec())
+    }
 }
 
 impl<T: AutoDocumentTypes> PrimaryIndex<T> {

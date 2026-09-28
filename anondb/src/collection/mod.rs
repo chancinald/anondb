@@ -16,21 +16,58 @@ use super::*;
 const DESCRIPTION_KEY: &'static [u8] = "description".as_bytes();
 const MONOTONIC_ID_KEY: &'static [u8] = "monotonic".as_bytes();
 
-#[derive(Debug, Clone)]
-pub struct Collection<T: AutoDocumentTypes, K: KV>
-where
-    T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
+pub trait QueryOperations<T: CollectionDocument>:
+    ReadWriteQueryOperations<T> + WriteQueryOperations<T>
 {
+}
+
+pub trait ReadWriteQueryOperations<T: CollectionDocument> {
+    // fn count(&self) -> impl Future<Output = Result<u64>>;
+    fn find_many(
+        &self,
+        query: <T as Queryable>::DocumentQuery,
+    ) -> impl Future<Output = Result<impl futures::Stream<Item = Result<T>> + Send + Sync>>;
+    fn find_one(
+        &self,
+        query: <T as Queryable>::DocumentQuery,
+    ) -> impl Future<Output = Result<Option<T>>>;
+    fn update(
+        &self,
+        query: <T as Queryable>::DocumentQuery,
+        update_fn: impl Fn(&T) -> Option<T>,
+    ) -> impl Future<Output = Result<()>>;
+    fn delete(
+        &self,
+        query: <T as Queryable>::DocumentQuery,
+        delete_fn: impl Fn(&T) -> bool,
+    ) -> impl Future<Output = Result<()>>;
+}
+
+pub trait WriteQueryOperations<T: CollectionDocument> {
+    fn update_exact(
+        &self,
+        query_doc: <T as Queryable>::DocumentQuery,
+        update_fn: impl FnOnce(T) -> T,
+    ) -> impl Future<Output = Result<Option<T>>>;
+    fn delete_exact(
+        &self,
+        query_doc: <T as Queryable>::DocumentQuery,
+    ) -> impl Future<Output = Result<Option<T>>>;
+    fn find_exact(
+        &self,
+        query_doc: <T as Queryable>::DocumentQuery,
+    ) -> impl Future<Output = Result<Option<T>>>;
+}
+
+#[derive(Debug, Clone)]
+pub struct Collection<T: CollectionDocument, K: KV> {
     kv: K,
     name: String,
     indices: Vec<Index<T>>,
     primary_index: PrimaryIndex<T>,
 }
 
-impl<T: AutoDocumentTypes, K: KV> Collection<T, K>
-where
-    T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
-{
+impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
     pub async fn new(
         kv: K,
         name: String,
@@ -50,6 +87,10 @@ where
         }
         .migrate_if_needed()
         .await
+    }
+
+    pub fn query<'a>(&'a self) -> T::RunnableDocumentQuery<'a, Self> {
+        T::RunnableDocumentQuery::new(self)
     }
 
     fn metatable(&self) -> String {
@@ -326,32 +367,6 @@ where
         Ok(())
     }
 
-    /// Given a query, repeatedly call a closure with documents matching the
-    /// query. If the closure returns `Some()` the original document is replaced
-    /// and all indices are updated. If the closure returns `None`, no operation occurs.
-    pub async fn update(
-        &self,
-        query: <T as Queryable>::DocumentQuery,
-        update_fn: impl Fn(&T) -> Option<T>,
-    ) -> Result<()> {
-        let write_tx = self.kv.write_tx().await?;
-        let write = CollectionWrite::new(&self, &write_tx);
-        write.update(query, update_fn).await?;
-        write_tx.commit().await?;
-        Ok(())
-    }
-
-    pub async fn delete(
-        &self,
-        query: <T as Queryable>::DocumentQuery,
-        delete_fn: impl Fn(&T) -> bool,
-    ) -> Result<()> {
-        let write_tx = self.kv.write_tx().await?;
-        let write = CollectionWrite::new(&self, &write_tx);
-        write.delete(query, delete_fn).await?;
-        write_tx.commit().await
-    }
-
     /// Select the index which matches a query best.
     /// A None value indicates retrieval by primary key.
     fn select_index(
@@ -373,34 +388,6 @@ where
             }
         }
         Ok(out_index)
-    }
-
-    pub async fn find_many(
-        &self,
-        query: <T as Queryable>::DocumentQuery,
-    ) -> Result<impl futures::Stream<Item = Result<T>> + Send + Sync> {
-        let fields = query.serialize();
-        let index_maybe = self.select_index(&fields)?;
-        let tx = self.kv.read_tx().await?;
-        if let Some(index) = index_maybe {
-            let scan_range = query.compute_scan_range(index.field_names());
-            Ok(Either::Left(
-                index
-                    .query(self.primary_index.clone(), tx, query, scan_range)
-                    .await?,
-            ))
-        } else {
-            let scan_range = query.compute_scan_range(self.primary_index.fields());
-            Ok(Either::Right(
-                self.query_primary_key(tx, query, scan_range).await?,
-            ))
-        }
-    }
-
-    pub async fn find_one(&self, query: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
-        let out = self.find_many(query).await?;
-        futures::pin_mut!(out);
-        out.next().await.transpose()
     }
 
     pub(crate) async fn query_primary_key<'a>(
@@ -426,5 +413,129 @@ where
         let write = CollectionWrite::new(&self, &write_tx);
         write.clear().await?;
         write_tx.commit().await
+    }
+}
+
+impl<T: CollectionDocument + 'static, K: KV> QueryOperations<T> for Collection<T, K> {}
+
+impl<T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T> for Collection<T, K> {
+    async fn find_exact(&self, query_doc: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
+        let query: Query = query_doc.clone().into();
+        if let Some(key) = self.primary_index.key_maybe(&query)
+            && let Some(item) = self.kv.get(&self.name, &key).await?
+        {
+            let doc = self
+                .primary_index
+                .deserialize(item.key(), item.value().await);
+            return Ok(if doc.matches(&query_doc) {
+                Some(doc)
+            } else {
+                None
+            });
+        }
+        for index in self.indices.iter() {
+            if !index.options().unique || index.key_maybe(&query).is_none() {
+                continue;
+            }
+            if let Some(doc) = index
+                .get_exact(&self.primary_index, &self.kv.read_tx().await?, &query)
+                .await?
+                && doc.matches(&query_doc)
+            {
+                return Ok(Some(doc));
+            } else {
+                return Ok(None);
+            }
+        }
+        anyhow::bail!("Query did not fully specify a primary key or unique index key.")
+    }
+
+    async fn update_exact(
+        &self,
+        query_doc: <T as Queryable>::DocumentQuery,
+        update_fn: impl FnOnce(T) -> T,
+    ) -> Result<Option<T>> {
+        unimplemented!()
+    }
+
+    async fn delete_exact(&self, query_doc: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
+        unimplemented!()
+    }
+}
+
+impl<T: CollectionDocument + 'static, K: KV> ReadWriteQueryOperations<T> for Collection<T, K> {
+    async fn find_many(
+        &self,
+        query: <T as Queryable>::DocumentQuery,
+    ) -> Result<impl futures::Stream<Item = Result<T>> + Send + Sync> {
+        let query_erased = query.clone().into();
+        let index_maybe = self.select_index(&query_erased.fields)?;
+        let tx = self.kv.read_tx().await?;
+        if let Some(index) = index_maybe {
+            let scan_range = query_erased.compute_scan_range(index.field_names());
+            Ok(Either::Left(
+                index
+                    .query(self.primary_index.clone(), tx, query, scan_range)
+                    .await?,
+            ))
+        } else {
+            let scan_range = query_erased.compute_scan_range(self.primary_index.fields());
+            Ok(Either::Right(
+                self.query_primary_key(tx, query, scan_range).await?,
+            ))
+        }
+    }
+
+    async fn find_one(&self, query: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
+        let out = self.find_many(query).await?;
+        futures::pin_mut!(out);
+        out.next().await.transpose()
+    }
+
+    /// Given a query, repeatedly call a closure with documents matching the
+    /// query. If the closure returns `Some()` the original document is replaced
+    /// and all indices are updated. If the closure returns `None`, no operation occurs.
+    async fn update(
+        &self,
+        query: <T as Queryable>::DocumentQuery,
+        update_fn: impl Fn(&T) -> Option<T>,
+    ) -> Result<()> {
+        let tx = self.kv.write_tx().await?;
+        let write = CollectionWrite::new(&self, &tx);
+        let out = self.find_many(query).await?;
+        let mut stream = std::pin::pin!(out);
+        while let Some(doc) = stream.next().await.transpose()? {
+            if let Some(updated) = update_fn(&doc) {
+                let primary_key = self.primary_index.serialize_key(&doc);
+                tx.remove(&self.name, &primary_key).await?;
+                for index in self.indices.iter() {
+                    index.delete(&tx, &doc, &primary_key).await?;
+                }
+                write.insert(&updated).await?;
+            }
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn delete(
+        &self,
+        query: <T as Queryable>::DocumentQuery,
+        delete_fn: impl Fn(&T) -> bool,
+    ) -> Result<()> {
+        let tx = self.kv.write_tx().await?;
+        let out = self.find_many(query).await?;
+        let mut stream = std::pin::pin!(out);
+        while let Some(doc) = stream.next().await.transpose()? {
+            if delete_fn(&doc) {
+                let primary_key = self.primary_index.serialize_key(&doc);
+                tx.remove(&self.name, &primary_key).await?;
+                for index in self.indices.iter() {
+                    index.delete(&tx, &doc, &primary_key).await?;
+                }
+            }
+        }
+        tx.commit().await?;
+        Ok(())
     }
 }

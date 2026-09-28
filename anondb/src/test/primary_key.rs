@@ -60,8 +60,9 @@ async fn compound_primary_key() -> Result<()> {
         .expect_err("Should fail to insert duplicate compound primary key");
 
     let doc = db
-        .test
-        .find_one(BigTestDocument::query().id1().eq(doc0.id1))
+        .query::<BigTestDocument>()
+        .id1(doc0.id1)
+        .find_one()
         .await?
         .expect("unable to find inserted doc");
 
@@ -92,7 +93,7 @@ async fn final_field_var_width_primary_key() -> Result<()> {
 
     let doc = db
         .test
-        .find_one(BigTestDocument::query().id0().eq(doc0.id0))
+        .find_one(BigTestDocument::query().id0(doc0.id0))
         .await?
         .expect("unable to find inserted doc");
 

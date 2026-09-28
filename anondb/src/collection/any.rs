@@ -34,10 +34,7 @@ pub trait AnyCollection<K: KV>: Send + Sync {
     fn parse_key(&self, key: &[u8]) -> Result<Vec<(String, String, Box<dyn ValidDBType>)>>;
 }
 
-impl<T: AutoDocumentTypes, K: KV> AnyCollection<K> for Collection<T, K>
-where
-    T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
-{
+impl<T: CollectionDocument + 'static, K: KV> AnyCollection<K> for Collection<T, K> {
     fn name(&self) -> &str {
         &self.name
     }

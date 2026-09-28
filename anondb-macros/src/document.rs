@@ -186,6 +186,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     });
 
     let query_struct_name = quote::format_ident!("{}_Query", name);
+    let runnable_query_struct_name = quote::format_ident!("{}_RunnableQuery", name);
     let phantom_struct_name = quote::format_ident!("{}_Phantom", name);
     let maybe_struct_name = quote::format_ident!("{}_Maybe", name);
     let fixed_width_getter_names = field_names
@@ -193,7 +194,70 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         .map(|name| quote::format_ident!("__fixed_width_{}", name))
         .collect::<Vec<_>>();
 
+    let result_type = quote::quote! { #crate_name::result::Result };
+
     let expanded = quote! {
+        #[derive(Debug)]
+        #[allow(non_camel_case_types)]
+        pub struct #runnable_query_struct_name<'a, P: #crate_name::WriteQueryOperations<#name> + Send + Sync> {
+            query: #query_struct_name,
+            provider: &'a P,
+        }
+
+        impl <'a, P: #crate_name::WriteQueryOperations<#name> + Send + Sync + 'static> #crate_name::RunnableQuery<'a, P> for #runnable_query_struct_name<'a, P> {
+            fn new(provider: &'a P) -> Self {
+                Self {
+                    query: Default::default(),
+                    provider: provider,
+                }
+            }
+        }
+
+        impl <'a, P: #crate_name::WriteQueryOperations<#name> + Send + Sync + 'static> #runnable_query_struct_name<'a, P> {
+            #(
+                pub fn #field_names (mut self, value: impl Into<#crate_name::QueryParam<#field_types>>) -> Self {
+                    self.query = self.query.#field_names(value);
+                    self
+                }
+            )*
+
+            pub async fn find_exact(self
+            ) -> #result_type<Option<#name>> {
+                self.provider.find_exact(self.query).await
+            }
+            pub async fn delete_exact(self
+            ) -> #result_type<Option<#name>> {
+                self.provider.delete_exact(self.query).await
+            }
+            pub async fn update_exact(self, f: impl FnOnce(#name) -> #name
+            ) -> #result_type<Option<#name>> {
+                self.provider.update_exact(self.query, f).await
+            }
+        }
+        impl <'a, P: #crate_name::QueryOperations<#name> + Send + Sync + 'static> #runnable_query_struct_name<'a, P> {
+            pub async fn find_many(
+                self,
+            ) -> #result_type<impl #crate_name::futures::Stream<Item = #result_type<#name>> + Send + Sync> {
+                self.provider.find_many(self.query).await
+            }
+            pub async fn find_one(
+                self,
+            ) -> #result_type<Option<#name>> {
+                self.provider.find_one(self.query).await
+            }
+            pub async fn update(
+                self,
+                update_fn: impl Fn(&#name) -> Option<#name>,
+            ) -> #result_type<()> {
+                self.provider.update(self.query, update_fn).await
+            }
+            pub async fn delete(
+                self,
+                delete_fn: impl Fn(&#name) -> bool,
+            ) -> #result_type<()> {
+                self.provider.delete(self.query, delete_fn).await
+            }
+        }
 
         #[derive(Default, Clone, Debug)]
         #[allow(non_camel_case_types)]
@@ -206,33 +270,31 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         impl #impl_generics #query_struct_name #ty_generics #where_clause {
             #(
-                pub fn #field_names (self) -> #crate_name::QueryBuilder<Self, #field_types> {
-                    use #crate_name::GeneralQueryBuilder;
-                    #crate_name::QueryBuilder::with_query(self, |param, mut this| {
-                        if this.#field_names.is_some() {
-                            println!("anondb: warning, param already set; {}", stringify!(#field_names));
-                        }
-                        this.#field_names = Some(param);
-                        this
-                    })
+                pub fn #field_names (mut self, value: impl Into<#crate_name::QueryParam<#field_types>>) -> Self {
+                    if self.#field_names.is_some() {
+                        println!("anondb: warning, param already set; {}", stringify!(#field_names));
+                    }
+                    self.#field_names = Some(value.into());
+                    self
                 }
             )*
         }
 
-        impl #impl_generics #crate_name::Query for #query_struct_name #ty_generics #where_clause {
-            /// Get a vector containing the fields that have been set.
-            fn serialize(&self) -> Vec<(&'static str, #crate_name::QueryParam<Vec<u8>>)> {
+        impl #impl_generics Into<#crate_name::Query> for #query_struct_name #ty_generics #where_clause {
+            fn into(self) -> #crate_name::Query {
                 let mut out = Vec::with_capacity(#field_count);
                 #(
                     if let Some(param) = self.#field_names.as_ref() {
                         out.push((stringify!(#field_names), param.serialize()));
                     }
                 )*
-                out
+                #crate_name::Query { fields: out }
             }
         }
 
         #(#field_constraints)*
+
+        impl #impl_generics #crate_name::CollectionDocument for #name #ty_generics #where_clause {}
 
         impl #impl_generics #crate_name::AutoDocumentTypes for #name #ty_generics #where_clause {
             type DocumentPhantom = #phantom_struct_name;
@@ -260,6 +322,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         impl #impl_generics #crate_name::Queryable for #name #ty_generics #where_clause {
             type DocumentQuery = #query_struct_name #ty_generics;
+            type RunnableDocumentQuery<'a, P: #crate_name::WriteQueryOperations<Self> + Send + Sync + 'static> = #runnable_query_struct_name<'a, P>;
 
             fn matches(&self, query: &Self::DocumentQuery) -> bool {
                 #(

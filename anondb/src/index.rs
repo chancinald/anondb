@@ -223,4 +223,61 @@ where
                 .await?;
         })
     }
+
+    pub async fn get_exact(
+        &self,
+        primary_index: &PrimaryIndex<T>,
+        tx: &impl ReadOperations,
+        query: &Query,
+    ) -> Result<Option<T>> {
+        if !self.options.unique {
+            anyhow::bail!("Cannot get exact document in non-unique index")
+        }
+        let Some(key) = self.key_maybe(query) else {
+            anyhow::bail!(
+                "Index::get_exact must be called with a query fully specifying a document"
+            )
+        };
+        let Some(val) = tx.get(&self.kv_table_name, &key).await? else {
+            return Ok(None);
+        };
+        let entry = tx
+            .get(&self.collection_name, val.value().await)
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Index \"{}\" referencing primary key that does not exist!",
+                    self.kv_table_name
+                )
+            })?;
+        Ok(Some(
+            primary_index.deserialize(entry.key(), entry.value().await),
+        ))
+    }
+
+    /// Try to serialize a query into an exact document in the index,
+    /// if possible.
+    pub fn key_maybe(&self, query: &Query) -> Option<Vec<u8>> {
+        if query.fields.len() < self.field_names.len() {
+            return None;
+        }
+        let mut key = LexicographicKey::default();
+        for (name, _) in self.field_names.iter() {
+            if let Some(bytes) = query.fields.iter().find_map(|(qname, param)| match param {
+                QueryParam::Eq(bytes) => {
+                    if *qname == name.as_str() {
+                        Some(bytes)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }) {
+                key.append_key_slice(bytes);
+            } else {
+                return None;
+            }
+        }
+        Some(key.into_vec())
+    }
 }

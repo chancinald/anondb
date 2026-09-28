@@ -53,7 +53,7 @@ async fn should_update_document() -> Result<()> {
 
     assert!(
         db.test
-            .find_one(TestDocument::query().id().eq(original_doc.id))
+            .find_one(TestDocument::query().id(original_doc.id))
             .await?
             .is_none(),
         "original document should be removed"
@@ -61,7 +61,7 @@ async fn should_update_document() -> Result<()> {
 
     let found_doc = db
         .test
-        .find_one(TestDocument::query().id().eq(1))
+        .find_one(TestDocument::query().id(1))
         .await?
         .expect("expected to retrieve a document with updated id");
     assert_eq!(

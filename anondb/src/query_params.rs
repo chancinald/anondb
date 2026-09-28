@@ -43,6 +43,12 @@ impl<T: Clone> From<std::ops::RangeToInclusive<T>> for GeneralRange<T> {
     }
 }
 
+impl<T: Clone> From<::std::ops::RangeFull> for GeneralRange<T> {
+    fn from(value: ::std::ops::RangeFull) -> Self {
+        Self(value.start_bound().cloned(), value.end_bound().cloned())
+    }
+}
+
 impl<T> RangeBounds<T> for GeneralRange<T> {
     fn start_bound(&self) -> Bound<&T> {
         self.0.as_ref()
@@ -58,88 +64,69 @@ pub enum QueryParam<F: ValidDBType> {
     Range(GeneralRange<F>),
 }
 
+impl<F: ValidDBType> From<F> for QueryParam<F> {
+    fn from(value: F) -> Self {
+        QueryParam::Eq(value)
+    }
+}
+
 impl From<&str> for QueryParam<String> {
     fn from(value: &str) -> Self {
         QueryParam::Eq(value.to_string())
     }
 }
 
-macro_rules! eq_syntax {
-    ($($type:ty),+) => {
-        $(
-        impl From<$type> for QueryParam<$type> {
-            fn from(value: $type) -> Self {
-                QueryParam::Eq(value)
-            }
-        }
-        impl From<&$type> for QueryParam<$type> {
-            fn from(value: &$type) -> Self {
-                QueryParam::Eq(value.clone())
-            }
-        }
-        )+
-    };
+impl<F: ValidDBType + Clone> From<std::ops::Range<F>> for QueryParam<F> {
+    fn from(value: std::ops::Range<F>) -> Self {
+        Self::Range(value.into())
+    }
 }
-eq_syntax!(String, u8, u16, u32, u64, u128);
+impl<F: ValidDBType + Clone> From<std::ops::RangeFrom<F>> for QueryParam<F> {
+    fn from(value: std::ops::RangeFrom<F>) -> Self {
+        Self::Range(value.into())
+    }
+}
+impl<F: ValidDBType + Clone> From<std::ops::RangeTo<F>> for QueryParam<F> {
+    fn from(value: std::ops::RangeTo<F>) -> Self {
+        Self::Range(value.into())
+    }
+}
 
-impl<F: ValidDBType + PartialEq + PartialOrd + Clone> From<::std::ops::Range<F>> for QueryParam<F> {
-    fn from(value: ::std::ops::Range<F>) -> Self {
-        Self::Range(GeneralRange(
-            value.start_bound().map(|v| v.clone()),
-            value.end_bound().map(|v| v.clone()),
-        ))
+impl<F: ValidDBType + Clone> From<std::ops::RangeInclusive<F>> for QueryParam<F> {
+    fn from(value: std::ops::RangeInclusive<F>) -> Self {
+        Self::Range(value.into())
     }
 }
-impl<F: ValidDBType + PartialEq + PartialOrd + Clone> From<::std::ops::RangeInclusive<F>>
-    for QueryParam<F>
-{
-    fn from(value: ::std::ops::RangeInclusive<F>) -> Self {
-        Self::Range(GeneralRange(
-            value.start_bound().map(|v| v.clone()),
-            value.end_bound().map(|v| v.clone()),
-        ))
+
+impl<F: ValidDBType + Clone> From<std::ops::RangeToInclusive<F>> for QueryParam<F> {
+    fn from(value: std::ops::RangeToInclusive<F>) -> Self {
+        Self::Range(value.into())
     }
 }
-impl<F: ValidDBType + PartialEq + PartialOrd + Clone> From<::std::ops::RangeFrom<F>>
-    for QueryParam<F>
-{
-    fn from(value: ::std::ops::RangeFrom<F>) -> Self {
-        Self::Range(GeneralRange(
-            value.start_bound().map(|v| v.clone()),
-            value.end_bound().map(|v| v.clone()),
-        ))
-    }
-}
-impl<F: ValidDBType + PartialEq + PartialOrd + Clone> From<::std::ops::RangeTo<F>>
-    for QueryParam<F>
-{
-    fn from(value: ::std::ops::RangeTo<F>) -> Self {
-        Self::Range(GeneralRange(
-            value.start_bound().map(|v| v.clone()),
-            value.end_bound().map(|v| v.clone()),
-        ))
-    }
-}
-impl<F: ValidDBType + PartialEq + PartialOrd + Clone> From<::std::ops::RangeToInclusive<F>>
-    for QueryParam<F>
-{
-    fn from(value: ::std::ops::RangeToInclusive<F>) -> Self {
-        Self::Range(GeneralRange(
-            value.start_bound().map(|v| v.clone()),
-            value.end_bound().map(|v| v.clone()),
-        ))
-    }
-}
-impl<F: ValidDBType + PartialEq + PartialOrd + Clone> From<::std::ops::RangeFull>
-    for QueryParam<F>
-{
+
+impl<F: ValidDBType + Clone> From<::std::ops::RangeFull> for QueryParam<F> {
     fn from(value: ::std::ops::RangeFull) -> Self {
-        Self::Range(GeneralRange(
-            value.start_bound().map(|v: &F| v.clone()),
-            value.end_bound().map(|v: &F| v.clone()),
-        ))
+        Self::Range(value.into())
     }
 }
+
+// macro_rules! eq_syntax {
+//     ($($type:ty),+) => {
+//         $(
+//         impl From<$type> for QueryParam<$type> {
+//             fn from(value: $type) -> Self {
+//                 QueryParam::Eq(value)
+//             }
+//         }
+//         impl From<&$type> for QueryParam<$type> {
+//             fn from(value: &$type) -> Self {
+//                 QueryParam::Eq(value.clone())
+//             }
+//         }
+//         )+
+//     };
+// }
+// eq_syntax!(String, u8, u16, u32, u64, u128);
 
 impl<F: ValidDBType + PartialEq + PartialOrd + Clone> QueryParam<F> {
     /// Test an instance of `T` against this parameter. Returns `true` if `T` matches self.

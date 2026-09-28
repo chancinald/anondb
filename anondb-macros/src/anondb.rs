@@ -121,6 +121,13 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                     #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx)
                 }
             )*
+
+            pub fn query<'a, T: #crate_name::CollectionDocument + 'static>(&'a self) -> <T as #crate_name::Queryable>::RunnableDocumentQuery<'a, #crate_name::Collection<T,#kv_generic_name>>
+                where
+                    Self: #crate_name::QueryFor<T, #crate_name::Collection<T, #kv_generic_name>>
+            {
+                <Self as #crate_name::QueryFor<T, #crate_name::Collection<T, K>>>::query_for(self)
+            }
         }
 
         const _: fn() = || {
@@ -149,7 +156,22 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                     #(#collections_untyped)*
                 ].into_iter()
             }
+
+            pub fn query<'a, T: #crate_name::CollectionDocument + 'static>(&'a self) -> <T as #crate_name::Queryable>::RunnableDocumentQuery<'a, #crate_name::Collection<T,#kv_generic_name>>
+                where
+                    Self: #crate_name::QueryFor<T, #crate_name::Collection<T, #kv_generic_name>>
+            {
+                <Self as #crate_name::QueryFor<T, #crate_name::Collection<T, K>>>::query_for(self)
+            }
         }
+
+        #(
+            impl #impl_generics #crate_name::QueryFor<#collection_types, #crate_name::Collection<#collection_types, #kv_generic_name>> for #name #ty_generics #where_clause {
+                fn query_for<'a>(&'a self) -> <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery<'a,#crate_name::Collection<#collection_types, #kv_generic_name>> {
+                    <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery::new(&self.#collection_names)
+                }
+            }
+        )*
     };
 
     Ok(TokenStream::from(expanded))

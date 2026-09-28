@@ -1,18 +1,12 @@
 use super::*;
 
 #[derive(Debug, Clone)]
-pub struct CollectionWrite<'a, T: AutoDocumentTypes, K: KV>
-where
-    T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
-{
+pub struct CollectionWrite<'a, T: CollectionDocument, K: KV> {
     pub(crate) tx: &'a K::WriteTransaction,
     collection: &'a Collection<T, K>,
 }
 
-impl<'a, T: AutoDocumentTypes, K: KV> CollectionWrite<'a, T, K>
-where
-    T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
-{
+impl<'a, T: CollectionDocument + 'static, K: KV> CollectionWrite<'a, T, K> {
     pub fn new(collection: &'a Collection<T, K>, tx: &'a K::WriteTransaction) -> Self {
         Self { tx, collection }
     }
@@ -89,48 +83,6 @@ where
         Ok(())
     }
 
-    /// Given a query, repeatedly call a closure with documents matching the
-    /// query. If the closure returns `Some()` the original document is replaced
-    /// and all indices are updated. If the closure returns `None`, no operation occurs.
-    pub async fn update(
-        &self,
-        query: <T as Queryable>::DocumentQuery,
-        update_fn: impl Fn(&T) -> Option<T>,
-    ) -> Result<()> {
-        let out = self.collection.find_many(query).await?;
-        let mut stream = std::pin::pin!(out);
-        while let Some(doc) = stream.next().await.transpose()? {
-            if let Some(updated) = update_fn(&doc) {
-                let primary_key = self.collection.primary_index.serialize_key(&doc);
-                self.tx.remove(&self.collection.name, &primary_key).await?;
-                for index in self.collection.indices.iter() {
-                    index.delete(self.tx, &doc, &primary_key).await?;
-                }
-                self.insert(&updated).await?;
-            }
-        }
-        Ok(())
-    }
-
-    pub async fn delete(
-        &self,
-        query: <T as Queryable>::DocumentQuery,
-        delete_fn: impl Fn(&T) -> bool,
-    ) -> Result<()> {
-        let out = self.collection.find_many(query).await?;
-        let mut stream = std::pin::pin!(out);
-        while let Some(doc) = stream.next().await.transpose()? {
-            if delete_fn(&doc) {
-                let primary_key = self.collection.primary_index.serialize_key(&doc);
-                self.tx.remove(&self.collection.name, &primary_key).await?;
-                for index in self.collection.indices.iter() {
-                    index.delete(self.tx, &doc, &primary_key).await?;
-                }
-            }
-        }
-        Ok(())
-    }
-
     /// Remove all entries in the collection
     pub async fn clear(&self) -> Result<()> {
         self.tx.clear(self.collection.name()).await?;
@@ -138,5 +90,55 @@ where
             index.clear(self.tx).await?;
         }
         Ok(())
+    }
+}
+
+impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
+    for CollectionWrite<'a, T, K>
+{
+    async fn find_exact(&self, query_doc: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
+        let query: Query = query_doc.clone().into();
+        if let Some(key) = self.collection.primary_index.key_maybe(&query)
+            && let Some(item) = self.tx.get(&self.collection.name, &key).await?
+        {
+            let doc = self
+                .collection
+                .primary_index
+                .deserialize(item.key(), item.value().await);
+            return Ok(if doc.matches(&query_doc) {
+                Some(doc)
+            } else {
+                None
+            });
+        }
+        for index in self.collection.indices.iter() {
+            if !index.options().unique || index.key_maybe(&query).is_none() {
+                continue;
+            }
+            if let Some(doc) = index
+                .get_exact(&self.collection.primary_index, self.tx, &query)
+                .await?
+                && doc.matches(&query_doc)
+            {
+                return Ok(Some(doc));
+            } else {
+                return Ok(None);
+            }
+        }
+        anyhow::bail!("Query did not fully specify a primary key or unique index key.")
+    }
+
+    async fn delete_exact(&self, query_doc: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
+        unimplemented!()
+        // if let Some(doc) = self.find_exact(query_doc).await? {
+        // }
+    }
+
+    async fn update_exact(
+        &self,
+        query_doc: <T as Queryable>::DocumentQuery,
+        update_fn: impl FnOnce(T) -> T,
+    ) -> Result<Option<T>> {
+        unimplemented!()
     }
 }

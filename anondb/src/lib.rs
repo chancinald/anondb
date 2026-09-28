@@ -41,6 +41,11 @@ pub use postcard;
 
 pub(crate) const NAME_SEPARATOR: &'static str = "___";
 
+pub trait CollectionDocument:
+    AutoDocumentTypes + Queryable + AnyDocument + ParseableDocument + Migrateable
+{
+}
+
 pub trait AutoDocumentTypes
 where
     Self: Sized,
@@ -60,9 +65,22 @@ pub trait MaybeSer {
     fn serialize_remaining_to_vec(self) -> Vec<(String, String, Box<dyn ValidDBType>)>;
 }
 
+pub trait RunnableQuery<'a, P> {
+    fn new(provider: &'a P) -> Self;
+}
+
+pub trait QueryFor<T: CollectionDocument + 'static, P: WriteQueryOperations<T> + Send + Sync> {
+    fn query_for<'a>(&'a self) -> T::RunnableDocumentQuery<'a, P>;
+}
+
 /// A trait representing a document which may be queried.
 pub trait Queryable: Clone + Send + Sync {
-    type DocumentQuery: Default + Clone + Query + Send + Sync;
+    type DocumentQuery: Clone + Default + Send + Sync + Into<Query>;
+    type RunnableDocumentQuery<'a, P: WriteQueryOperations<Self> + Send + Sync + 'static>: RunnableQuery<'a, P>
+        + Send
+        + Sync
+    where
+        Self: CollectionDocument;
 
     fn query() -> Self::DocumentQuery {
         Self::DocumentQuery::default()

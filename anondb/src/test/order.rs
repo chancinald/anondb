@@ -62,13 +62,13 @@ async fn prefix_scan_independent() -> Result<()> {
 
     assert!(
         db.test
-            .find_one(TestDocument::query().u().range(..0))
+            .find_one(TestDocument::query().u(..0))
             .await?
             .is_none()
     );
 
     for u in [rand::random(), rand::random(), 0, 255, 254, 1] {
-        let query = TestDocument::query().u().range(u..);
+        let query = TestDocument::query().u(u..);
         let query = db.test.find_many(query).await?;
         let stream = std::pin::pin!(query);
         let docs = stream.try_collect::<Vec<_>>().await?;
@@ -79,7 +79,7 @@ async fn prefix_scan_independent() -> Result<()> {
             assert_eq!(doc.r, key.1, concat!("mismatch on field `r`"));
         }
 
-        let query = TestDocument::query().u().range(..u);
+        let query = TestDocument::query().u(..u);
         let query = db.test.find_many(query).await?;
         let stream = std::pin::pin!(query);
         let docs = stream.try_collect::<Vec<_>>().await?;
@@ -122,7 +122,7 @@ async fn simple_order_range() -> Result<()> {
 
     let doc = TestDocument::default();
     let tree_range_start = (doc.i, doc.r);
-    let query = TestDocument::query().i().range(doc.i..).r().range(doc.r..);
+    let query = TestDocument::query().i(doc.i..).r(doc.r..);
     let query = db.test.find_many(query).await?;
     let stream = std::pin::pin!(query);
     let docs = stream.try_collect::<Vec<_>>().await?;
@@ -140,7 +140,7 @@ async fn simple_order_range() -> Result<()> {
         assert_eq!(doc.r, *r, concat!("mismatch on field `r`"));
     }
 
-    let query = TestDocument::query().i().range(..doc.i).r().range(..doc.r);
+    let query = TestDocument::query().i(..doc.i).r(..doc.r);
     let query = db.test.find_many(query).await?;
     let stream = std::pin::pin!(query);
     let docs = stream.try_collect::<Vec<_>>().await?;
@@ -206,7 +206,7 @@ macro_rules! test_permutation {
                 range_start = TestDocument::default();
                 let query = TestDocument::query()
                 $(
-                    . $field ().range(range_start.$field.clone() ..)
+                    . $field (range_start.$field.clone() ..)
                 )+ ;
                 let query = db.test.find_many(query).await?;
                 let stream = std::pin::pin!(query);
@@ -237,7 +237,7 @@ macro_rules! test_permutation {
                 {
                 let query = TestDocument::query()
                 $(
-                    . $field ().range(range_start.$field.clone() ..)
+                    . $field (range_start.$field.clone() ..)
                 )+ ;
                 let query = db.test.find_many(query).await?;
                 let stream = std::pin::pin!(query);

@@ -5,7 +5,6 @@ pub use any::*;
 pub use write_tx::*;
 
 use std::borrow::Borrow;
-use std::collections::BTreeMap;
 use std::collections::HashSet;
 
 use anyhow::Result;
@@ -18,7 +17,7 @@ const DESCRIPTION_KEY: &'static [u8] = "description".as_bytes();
 const MONOTONIC_ID_KEY: &'static [u8] = "monotonic".as_bytes();
 
 #[derive(Debug, Clone)]
-pub struct Collection<T, K: KV>
+pub struct Collection<T: AutoDocumentTypes, K: KV>
 where
     T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
 {
@@ -28,7 +27,7 @@ where
     primary_index: PrimaryIndex<T>,
 }
 
-impl<T, K: KV> Collection<T, K>
+impl<T: AutoDocumentTypes, K: KV> Collection<T, K>
 where
     T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
 {

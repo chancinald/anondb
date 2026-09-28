@@ -11,11 +11,12 @@ pub trait AnyIndex {
     fn field_names(&self) -> &Vec<(String, OwnedLexStats)>;
     fn options(&self) -> &IndexOptions;
     fn kv_table_name(&self) -> &str;
+    fn parse_index_key(&self, key: &[u8]) -> Vec<(String, String, Box<dyn ValidDBType>)>;
 }
 
-impl<T> AnyIndex for Index<T>
+impl<T: AutoDocumentTypes> AnyIndex for Index<T>
 where
-    T: Queryable,
+    T: Queryable + AutoDocumentTypes,
 {
     fn collection_name(&self) -> &str {
         &self.collection_name
@@ -29,6 +30,15 @@ where
     fn kv_table_name(&self) -> &str {
         &self.kv_table_name
     }
+    fn parse_index_key(&self, key: &[u8]) -> Vec<(String, String, Box<dyn ValidDBType>)> {
+        let maybe_doc = (self.deserialize_key)(key);
+        let out = maybe_doc.serialize_remaining_to_vec();
+        assert_eq!(out.len(), self.field_names.len());
+        for (v, x) in out.iter().zip(self.field_names.iter()) {
+            assert_eq!(v.0, x.0);
+        }
+        out
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Default, serde::Serialize, serde::Deserialize)]
@@ -41,7 +51,7 @@ pub struct IndexOptions {
 #[derive(Debug, Clone)]
 pub struct Index<T>
 where
-    T: Queryable,
+    T: Queryable + AutoDocumentTypes,
 {
     /// The name of the database collection the index belongs to.
     collection_name: String,
@@ -49,6 +59,7 @@ where
     pub(crate) field_names: Vec<(String, OwnedLexStats)>,
     /// Take a document of type `T` and serialize it into a lexicographically sortable key
     pub(crate) serialize_key: Arc<fn(&T) -> Vec<u8>>,
+    pub(crate) deserialize_key: Arc<fn(&[u8]) -> <T as AutoDocumentTypes>::MaybeStruct>,
     /// Options for the index
     options: IndexOptions,
     kv_table_name: String,
@@ -56,12 +67,13 @@ where
 
 impl<T> Index<T>
 where
-    T: Queryable,
+    T: Queryable + AutoDocumentTypes,
 {
     pub fn new(
         collection_name: String,
         field_names: Vec<(String, OwnedLexStats)>,
         serialize: fn(&T) -> Vec<u8>,
+        deserialize: fn(&[u8]) -> <T as AutoDocumentTypes>::MaybeStruct,
         options: IndexOptions,
     ) -> Self {
         assert!(!field_names.is_empty(), "attempting to create empty index");
@@ -82,6 +94,7 @@ where
             collection_name,
             field_names,
             serialize_key: Arc::new(serialize),
+            deserialize_key: Arc::new(deserialize),
             options,
             kv_table_name,
         }

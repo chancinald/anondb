@@ -1,7 +1,7 @@
 use super::*;
 
 #[derive(Debug, Clone)]
-pub struct CollectionWrite<'a, T, K: KV>
+pub struct CollectionWrite<'a, T: AutoDocumentTypes, K: KV>
 where
     T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
 {
@@ -9,7 +9,7 @@ where
     collection: &'a Collection<T, K>,
 }
 
-impl<'a, T, K: KV> CollectionWrite<'a, T, K>
+impl<'a, T: AutoDocumentTypes, K: KV> CollectionWrite<'a, T, K>
 where
     T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
 {

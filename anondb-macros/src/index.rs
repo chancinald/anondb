@@ -29,9 +29,36 @@ impl IndexDef {
         &self,
         collection_name: &Ident,
         doc_generic: &Type,
+        index_num_maybe: Option<usize>,
     ) -> TokenStream {
         let crate_name = super::crate_name();
         let fields = self.fields.clone();
+        let is_last_field = self
+            .fields
+            .iter()
+            .enumerate()
+            .map(|(i, _)| i == self.fields.len() - 1)
+            .collect::<Vec<_>>();
+        let field_width_getters = self
+            .fields
+            .iter()
+            .map(|name| quote::format_ident!("__fixed_width_{}", name))
+            .collect::<Vec<_>>();
+        let field_width_errors = self
+            .fields
+            .iter()
+            .map(|name| format!(
+                    "In collection \"{}\", {} expected field \"{}\" to be a constant width type. Only the final component of an index may be variable width.",
+                    collection_name,
+                    if let Some(index_num) = index_num_maybe {
+                        format!("index #{index_num}")
+                    } else {
+                        format!("primary key")
+                    },
+                    name.to_string()
+                    )
+                )
+            .collect::<Vec<_>>();
         let mut options = self
             .options
             .iter()
@@ -50,43 +77,53 @@ impl IndexDef {
         match self.index_type {
             IndexType::Primary => {
                 quote! {
+                        {
+                            type DocumentPhantom = <#doc_generic as #crate_name::AutoDocumentTypes>::DocumentPhantom;
+                            type MaybeStruct = <#doc_generic as #crate_name::AutoDocumentTypes>::MaybeStruct;
+                            #(
+                                const _: () = assert!(
+                                    #is_last_field ||
+                                    DocumentPhantom::#field_width_getters().is_some(),
+                                    #field_width_errors
+                                );
+                            )*
                     #crate_name::PrimaryIndex::new(
                         vec![#(
                             (
                                 stringify!(#fields).to_string(),
-                                <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields()
+                                DocumentPhantom::#fields()
                              )
                             ),*
                         ],
                         |doc: &#doc_generic, full_doc: bool| -> (Vec<u8>, Option<Vec<u8>>) {
-                            let mut maybe_struct = <<#doc_generic as #crate_name::Maybe>::MaybeStruct>::from(doc.clone());
+                            let mut maybe_struct = MaybeStruct::from(doc.clone());
                             let mut key = #crate_name::LexicographicKey::default();
-                            let mut len_buf = Vec::default();
                             #(
                                 {
                                     let v = maybe_struct.#fields.take().expect("field already taken");
-                                    let bytes = #crate_name::SerializeLexicographic::serialize_lex(&v);
-                                    if full_doc && <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().fixed_width.is_none() {
-                                        len_buf = #crate_name::postcard::to_extend(&(bytes.len() as u64), len_buf).unwrap();
-                                    }
-                                    key.append_key_vec(bytes);
+                                    key.append(&v);
+                                    assert!(
+                                        #is_last_field || DocumentPhantom::#fields().fixed_width.is_some(),
+                                        #field_width_errors
+                                    );
                                 }
                             )*
                             if full_doc {
-                                (key.into_vec(), Some(vec![len_buf, maybe_struct.serialize_remaining().expect("")].concat()))
+                                (key.into_vec(), Some(maybe_struct.serialize_remaining().expect("document serialization failed")))
                             } else {
                                 (key.into_vec(), None)
                             }
                         },
-                        |mut key: &[u8], mut value: &[u8]| -> #doc_generic {
-                            let mut maybe_struct = <<#doc_generic as #crate_name::Maybe>::MaybeStruct>::default();
+                        |mut key: &[u8]| -> MaybeStruct {
+                            let mut maybe_struct = MaybeStruct::default();
                             #(
                                 {
-                                    let len_maybe = if <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields().fixed_width.is_none() {
-                                        let (len, rem) = #crate_name::postcard::take_from_bytes::<'_, u64>(value).unwrap();
-                                        value = rem;
-                                        Some(len as usize)
+                                    let len_maybe = if #is_last_field &&
+                                        DocumentPhantom::#fields().fixed_width.is_none()
+                                    {
+                                        Some(key.len())
                                     } else {
+                                        assert!(DocumentPhantom::#fields().fixed_width.is_some());
                                         None
                                     };
                                     assert!(maybe_struct.#fields.is_none(), "field aleady parsed");
@@ -103,36 +140,74 @@ impl IndexDef {
                                 }
                             )*
                             assert!(key.is_empty(), "did not parse all key elements, {} remaining", key.len());
-                            maybe_struct.deserialize_remaining(value).unwrap();
-                            maybe_struct.into()
+                            maybe_struct
                         }
                     )
+                }
                 }
             }
             IndexType::Normal => {
                 quote! {
+                    {
+                            type DocumentPhantom = <#doc_generic as #crate_name::AutoDocumentTypes>::DocumentPhantom;
+                            type MaybeStruct = <#doc_generic as #crate_name::AutoDocumentTypes>::MaybeStruct;
+                        #(
+                            const _: () = assert!(
+                                #is_last_field ||
+                                DocumentPhantom::#field_width_getters().is_some(),
+                                #field_width_errors
+                            );
+                        )*
                     #crate_name::Index::new(
                         stringify!(#collection_name).into(),
                         vec![#(
                             (
                                 stringify!(#fields).to_string(),
-                                <<#doc_generic as #crate_name::Queryable>::DocumentPhantom>::#fields()
+                                DocumentPhantom::#fields()
                              )
                             ),*
                         ],
                         |doc: &#doc_generic| -> Vec<u8> {
                             let mut key = #crate_name::LexicographicKey::default();
                             #(
-                                let bytes = <_ as #crate_name::SerializeLexicographic>::serialize_lex(&doc.#fields);
-                                key.append_key_slice(bytes.as_slice());
+                                key.append(&doc.#fields);
                             )*
                             key.into_vec()
+                        },
+                        |mut key: &[u8]| -> MaybeStruct {
+                            let mut maybe_struct = MaybeStruct::default();
+                            #(
+                                {
+                                    let len_maybe = if #is_last_field &&
+                                        DocumentPhantom::#fields().fixed_width.is_none()
+                                    {
+                                        Some(key.len())
+                                    } else {
+                                        assert!(DocumentPhantom::#fields().fixed_width.is_some());
+                                        None
+                                    };
+                                    assert!(maybe_struct.#fields.is_none(), "field aleady parsed");
+                                    let (v, rem) = #crate_name::DeserializeLexicographic::deserialize(key, len_maybe).unwrap();
+                                    maybe_struct.#fields = Some(v);
+                                    if !rem.is_empty() {
+                                        // skip 1 byte separator in the lexicographic key
+                                        let (sep, rem) = rem.split_at(1);
+                                        assert_eq!(sep[0], 0);
+                                        key = rem;
+                                    } else {
+                                        key = rem;
+                                    }
+                                }
+                            )*
+                            assert!(key.is_empty(), "did not parse all key elements, {} remaining", key.len());
+                            maybe_struct
                         },
                         #crate_name::IndexOptions {
                             #(#options)*
                             ..Default::default()
                         }
-                    ),
+                    )
+                },
                 }
             }
         }

@@ -16,8 +16,8 @@ pub struct IndexDescription {
 pub struct CollectionDescription {
     /// Currently stored version of the documents in the collection.
     pub version: u32,
-    /// field name along with type description string
-    pub fields: Vec<(String, String)>,
+    /// field name keyed to type description string
+    pub fields: std::collections::HashMap<String, String>,
     pub primary_key_fields: Vec<(String, OwnedLexStats)>,
     /// last known indices
     pub indices: Vec<IndexDescription>,

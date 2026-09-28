@@ -9,6 +9,7 @@ mod query;
 mod query_params;
 mod types;
 
+use std::collections::HashMap;
 use std::fmt::Display;
 
 pub use collection::*;
@@ -40,12 +41,28 @@ pub use postcard;
 
 pub(crate) const NAME_SEPARATOR: &'static str = "___";
 
-/// A trait representing a document which may be queried.
-pub trait Queryable: Clone + Send + Sync {
-    type DocumentQuery: Default + Clone + Query + Send + Sync;
+pub trait AutoDocumentTypes
+where
+    Self: Sized,
+{
     /// Used to access the types of fields by name. Accessors generated in
     /// anondb-macros/src/document.rs
     type DocumentPhantom;
+    /// For static incremental encoding and decoding.
+    /// This type has the exact same fields as the document, but with
+    /// each field wrapped in Option<>
+    type MaybeStruct: MaybeSer + Into<Self> + From<Self>;
+}
+
+pub trait MaybeSer {
+    fn serialize_remaining(self) -> postcard::Result<Vec<u8>>;
+    fn deserialize_remaining(&mut self, bytes: &[u8]) -> postcard::Result<()>;
+    fn serialize_remaining_to_vec(self) -> Vec<(String, String, Box<dyn ValidDBType>)>;
+}
+
+/// A trait representing a document which may be queried.
+pub trait Queryable: Clone + Send + Sync {
+    type DocumentQuery: Default + Clone + Query + Send + Sync;
 
     fn query() -> Self::DocumentQuery {
         Self::DocumentQuery::default()
@@ -59,7 +76,7 @@ pub trait Queryable: Clone + Send + Sync {
 pub trait AnyDocument {
     /// Get an ordered list of document field names, with corresponding types.
     fn field_types() -> &'static [(&'static str, &'static str)];
-    fn owned_field_types() -> Vec<(String, String)> {
+    fn owned_field_types() -> HashMap<String, String> {
         Self::field_types()
             .iter()
             .map(|v| (v.0.into(), v.1.into()))
@@ -85,10 +102,6 @@ pub trait Migrateable {
     }
 }
 
-pub trait Maybe {
-    type MaybeStruct;
-}
-
 /// A trait for handling changes to a database schema.
 #[derive(Debug)]
 pub struct MigrationError {
@@ -103,6 +116,6 @@ impl Display for MigrationError {
 
 impl std::error::Error for MigrationError {
     fn description(&self) -> &str {
-        unimplemented!()
+        self.message.as_str()
     }
 }

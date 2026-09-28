@@ -1,3 +1,5 @@
+use super::SerializeLexicographic;
+
 /// A vector of bytes representing a lexicographically sortable set of keys. Each key is separated
 /// by a byte 0x00 to allow partial index searches.
 ///
@@ -43,7 +45,18 @@ impl LexicographicKey {
         self.bytes.append(&mut vec);
     }
 
+    pub fn append(&mut self, value: &impl SerializeLexicographic) {
+        self.append_key_vec(value.serialize_lex());
+    }
+
     /// Append a 0x01 byte that will sort all longer keys before this key.
+    /// Used when filtering exclusively on earlier bytes.
+    ///
+    /// e.g. index containing fields [A, B, C]
+    /// We want to select a range of A ignoring B and C. For all A values
+    /// that compare equal, the B and C values will then be compared. We can
+    /// avoid this by appending a 1 byte that is compared with the separator,
+    /// always sorting after, ignoring the value of B.
     pub fn append_upper_inclusive_byte(&mut self) {
         self.bytes.push(0x01);
     }

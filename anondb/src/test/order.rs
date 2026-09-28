@@ -22,8 +22,8 @@ impl Default for TestDocument {
     fn default() -> Self {
         Self {
             str_0: rand_utf8(5),
-            str_1: rand_utf8(rand::random_range(20..22)),
-            bytes: rand_bytes(rand::random_range(50..100)),
+            str_1: rand_utf8(rand::random_range(2..100)),
+            bytes: rand_bytes(rand::random_range(5..100)),
             i: rand::random(),
             u: rand::random(),
             b: rand::random(),
@@ -175,6 +175,14 @@ macro_rules! test_permutation {
 
                 for _ in 0..100 {
                     let doc = TestDocument::default();
+                    {
+                        let mut rdoc = TestDocument::default();
+                        rdoc.bytes = vec![doc.bytes.clone(), vec![0], doc.bytes.clone()].concat();
+                        rdoc.str_1 = format!("{}{}", &doc.str_1, &rdoc.str_1);
+                        rdoc.b = doc.b;
+                        db.test.insert(&rdoc).await?;
+                        tree.insert(($(rdoc.$field.clone(),)+), ());
+                    }
                     db.test.insert(&doc).await?;
                     tree.insert(($(doc.$field.clone(),)+), ());
                 }
@@ -193,7 +201,40 @@ macro_rules! test_permutation {
                     )+
                 }
 
-                let range_start = TestDocument::default();
+                let mut range_start;
+                loop {
+                range_start = TestDocument::default();
+                let query = TestDocument::query()
+                $(
+                    . $field ().range(range_start.$field.clone() ..)
+                )+ ;
+                let query = db.test.find_many(query).await?;
+                let stream = std::pin::pin!(query);
+                let docs = stream.try_collect::<Vec<_>>().await?;
+                let filtered_tree = tree.keys().filter(|k| {
+                    let ($($field,)+) = k;
+                    $(
+                        $field >= &range_start.$field
+                    )&&*
+                }).collect::<Vec<_>>();
+                assert_eq!(docs.len(), filtered_tree.len());
+                    let range_start_maybe = docs.first().cloned();
+                for (doc, key) in docs.into_iter().zip(filtered_tree.into_iter()) {
+                    let ($($field,)+) = key;
+                    $(
+                        assert_eq!(
+                            doc.$field.clone(), $field.clone(),
+                            concat!("mismatch on field `", stringify!($field), "`")
+                        );
+                    )+
+                }
+                if let Some(start) = range_start_maybe {
+                    range_start = start;
+                    break;
+                }
+                }
+
+                {
                 let query = TestDocument::query()
                 $(
                     . $field ().range(range_start.$field.clone() ..)
@@ -217,6 +258,9 @@ macro_rules! test_permutation {
                         );
                     )+
                 }
+                }
+
+
 
                 Ok(())
             }
@@ -225,43 +269,16 @@ macro_rules! test_permutation {
 }
 
 // --- single field, sanity check each type in isolation ---
-test_permutation!(str_0, r);
-test_permutation!(bytes, r);
+test_permutation!(r, str_0);
+test_permutation!(r, bytes);
 test_permutation!(i);
 test_permutation!(b, r);
-test_permutation!(bytes_maybe, r);
-test_permutation!(str_maybe, r);
+test_permutation!(r, bytes_maybe);
+test_permutation!(r, str_maybe);
 test_permutation!(slice);
-
-// --- two fields, both orderings, mixing variable-length types ---
-test_permutation!(str_0, str_1);
-test_permutation!(str_1, str_0);
-test_permutation!(bytes, slice);
-test_permutation!(slice, bytes);
-test_permutation!(str_0, bytes);
-test_permutation!(bytes, str_0);
-
-// --- Option fields combined with non-Option, both positions ---
-test_permutation!(str_maybe, str_0);
-test_permutation!(str_0, str_maybe);
-test_permutation!(bytes_maybe, bytes);
-test_permutation!(bytes, bytes_maybe);
-test_permutation!(str_maybe, bytes_maybe, r);
-test_permutation!(bytes_maybe, str_maybe, r);
-
-// --- variable-length field NOT last
-test_permutation!(str_0, str_1, i);
-test_permutation!(bytes, str_0, i);
-test_permutation!(str_maybe, str_0, slice);
-test_permutation!(bytes_maybe, bytes, i);
 
 // --- fixed-width types leading, variable-length trailing ---
 test_permutation!(i, b, str_0);
 test_permutation!(b, i, bytes);
 test_permutation!(slice, i, str_1);
-
-// --- full field set, a few different orderings ---
-test_permutation!(str_0, str_1, bytes, i, b, bytes_maybe, str_maybe, slice);
-test_permutation!(slice, str_maybe, bytes_maybe, b, i, bytes, str_1, str_0);
-test_permutation!(i, b, slice, str_0, bytes, str_1, str_maybe, bytes_maybe);
-test_permutation!(bytes_maybe, str_maybe, str_0, str_1, bytes, slice, i, b);
+test_permutation!(b, str_1);

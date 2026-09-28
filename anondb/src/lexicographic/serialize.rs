@@ -11,18 +11,16 @@ pub struct OwnedLexStats {
 
 /// Allow a type to be serialized to lexicographically comparable bytes
 pub trait LexStats {
+    const FIXED_WIDTH: Option<u32> = None;
     fn min() -> Vec<u8>;
     fn max() -> Option<Vec<u8>> {
-        None
-    }
-    fn fixed_width() -> Option<u32> {
         None
     }
     fn to_owned() -> OwnedLexStats {
         OwnedLexStats {
             min: Self::min(),
             max: Self::max(),
-            fixed_width: Self::fixed_width(),
+            fixed_width: Self::FIXED_WIDTH,
         }
     }
 }
@@ -32,7 +30,7 @@ pub trait SerializeLexicographic {
 
 pub trait DeserializeLexicographic: SerializeLexicographic + LexStats + Sized {
     fn deserialize(bytes: &[u8], len_maybe: Option<usize>) -> Result<(Self, &[u8])> {
-        let len = match (Self::fixed_width(), len_maybe) {
+        let len = match (Self::FIXED_WIDTH, len_maybe) {
             (Some(_), Some(_)) => {
                 anyhow::bail!("cannot provide explicit length for fixed size element")
             }
@@ -90,16 +88,13 @@ impl SerializeLexicographic for bool {
 }
 
 impl LexStats for bool {
+    const FIXED_WIDTH: Option<u32> = Some(1);
     fn min() -> Vec<u8> {
         vec![0x00]
     }
 
     fn max() -> Option<Vec<u8>> {
         Some(vec![0x01])
-    }
-
-    fn fixed_width() -> Option<u32> {
-        Some(1)
     }
 }
 
@@ -182,22 +177,13 @@ macro_rules! lex_uint {
         }
 
         impl LexStats for &$int {
+            const FIXED_WIDTH: Option<u32> = Some(size_of::<$int>() as u32);
             fn min() -> Vec<u8> {
                 $int::MIN.to_be_bytes().to_vec()
             }
 
             fn max() -> Option<Vec<u8>> {
                 Some($int::MAX.to_be_bytes().to_vec())
-            }
-
-            fn fixed_width() -> Option<u32> {
-                assert_eq!(
-                    0,
-                    $int::BITS % 8,
-                    "non-byte aligned bit width for type {}",
-                    stringify!($int)
-                );
-                Some($int::BITS / 8)
             }
         }
 
@@ -208,16 +194,13 @@ macro_rules! lex_uint {
         }
 
         impl LexStats for $int {
+            const FIXED_WIDTH: Option<u32> = Some(size_of::<$int>() as u32);
             fn min() -> Vec<u8> {
                 <&$int as LexStats>::min()
             }
 
             fn max() -> Option<Vec<u8>> {
                 <&$int as LexStats>::max()
-            }
-
-            fn fixed_width() -> Option<u32> {
-                <&$int as LexStats>::fixed_width()
             }
         }
 
@@ -254,16 +237,13 @@ impl<const N: usize> SerializeLexicographic for [u8; N] {
     }
 }
 impl<const N: usize> LexStats for [u8; N] {
+    const FIXED_WIDTH: Option<u32> = Some(N as u32);
     fn min() -> Vec<u8> {
         vec![0u8; N]
     }
 
     fn max() -> Option<Vec<u8>> {
         Some(vec![u8::MAX; N])
-    }
-
-    fn fixed_width() -> Option<u32> {
-        Some(N as u32)
     }
 }
 
@@ -282,14 +262,12 @@ impl<T: SerializeLexicographic> SerializeLexicographic for PhantomData<T> {
 }
 
 impl<T: LexStats> LexStats for PhantomData<T> {
+    const FIXED_WIDTH: Option<u32> = T::FIXED_WIDTH;
     fn min() -> Vec<u8> {
         T::min()
     }
     fn max() -> Option<Vec<u8>> {
         T::max()
-    }
-    fn fixed_width() -> Option<u32> {
-        T::fixed_width()
     }
 }
 

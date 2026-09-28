@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use super::*;
 
 pub trait AnyCollection<K: KV>: Send + Sync {
@@ -29,9 +31,10 @@ pub trait AnyCollection<K: KV>: Send + Sync {
         Vec<(String, String, Box<dyn ValidDBType>)>,
         BTreeMap<String, (String, Box<dyn ValidDBType>)>,
     )>;
+    fn parse_key(&self, key: &[u8]) -> Result<Vec<(String, String, Box<dyn ValidDBType>)>>;
 }
 
-impl<T, K: KV> AnyCollection<K> for Collection<T, K>
+impl<T: AutoDocumentTypes, K: KV> AnyCollection<K> for Collection<T, K>
 where
     T: 'static + Queryable + AnyDocument + ParseableDocument + Migrateable,
 {
@@ -73,4 +76,20 @@ where
         }
         Ok((key_entries, entries))
     }
+
+    fn parse_key(&self, key: &[u8]) -> Result<Vec<(String, String, Box<dyn ValidDBType>)>> {
+        Ok(self.primary_index.deserialize_key(key))
+    }
+
+    // fn parse_key(&self, key: &[u8]) -> Result<Vec<(String, String, Box<dyn ValidDBType>)>> {
+    //     let mut entries = self.primary_index.deserialize(key, value).into_map();
+    //     let mut key_entries = Vec::with_capacity(self.primary_key_field_names().len());
+    //     for (name, _) in self.primary_key_field_names().iter() {
+    //         let entry = entries
+    //             .remove(name)
+    //             .expect("should contain primary key entry");
+    //         key_entries.push((name.to_string(), entry.0, entry.1));
+    //     }
+    //     Ok(key_entries)
+    // }
 }

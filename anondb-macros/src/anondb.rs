@@ -59,13 +59,14 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
     let collections = field_meta.iter().map(|(collection_name, meta)| {
         let doc_generic = &meta.doc_generic;
-        let primary_index = meta
-            .primary_key_index
-            .generate_index_constructor(collection_name, doc_generic);
+        let primary_index =
+            meta.primary_key_index
+                .generate_index_constructor(collection_name, doc_generic, None);
         let indices = meta
             .indices
             .iter()
-            .map(|v| v.generate_index_constructor(collection_name, doc_generic));
+            .enumerate()
+            .map(|(i, v)| v.generate_index_constructor(collection_name, doc_generic, Some(i)));
         quote! {
             #collection_name: #crate_name::Collection::new(
                 kv.clone(),

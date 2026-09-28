@@ -188,6 +188,10 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let query_struct_name = quote::format_ident!("{}_Query", name);
     let phantom_struct_name = quote::format_ident!("{}_Phantom", name);
     let maybe_struct_name = quote::format_ident!("{}_Maybe", name);
+    let fixed_width_getter_names = field_names
+        .iter()
+        .map(|name| quote::format_ident!("__fixed_width_{}", name))
+        .collect::<Vec<_>>();
 
     let expanded = quote! {
 
@@ -230,6 +234,12 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         #(#field_constraints)*
 
+        impl #impl_generics #crate_name::AutoDocumentTypes for #name #ty_generics #where_clause {
+            type DocumentPhantom = #phantom_struct_name;
+            type MaybeStruct = #maybe_struct_name #ty_generics;
+        }
+
+
         #[derive(Debug)]
         #[allow(non_camel_case_types)]
         pub struct #phantom_struct_name;
@@ -240,11 +250,16 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                     <#field_types as #crate_name::LexStats>::to_owned()
                 }
             )*
+
+            #(
+                pub const fn #fixed_width_getter_names() -> Option<u32> {
+                    <#field_types as #crate_name::LexStats>::FIXED_WIDTH
+                }
+            )*
         }
 
         impl #impl_generics #crate_name::Queryable for #name #ty_generics #where_clause {
             type DocumentQuery = #query_struct_name #ty_generics;
-            type DocumentPhantom = #phantom_struct_name;
 
             fn matches(&self, query: &Self::DocumentQuery) -> bool {
                 #(
@@ -285,10 +300,6 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             #migrations_fn_maybe
         }
 
-        impl #impl_generics #crate_name::Maybe for #name #ty_generics #where_clause {
-            type MaybeStruct = #maybe_struct_name #ty_generics;
-        }
-
         #[derive(Debug, Default)]
         #[allow(non_camel_case_types)]
         pub struct #maybe_struct_name #impl_generics #where_clause {
@@ -296,8 +307,8 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             _phantom: std::marker::PhantomData<(#(#phantom_generics),*)>
         }
 
-        impl #impl_generics #maybe_struct_name #ty_generics #where_clause {
-            pub(crate) fn serialize_remaining(mut self) -> #crate_name::postcard::Result<Vec<u8>> {
+        impl #impl_generics #crate_name::MaybeSer for #maybe_struct_name #ty_generics #where_clause {
+            fn serialize_remaining(mut self) -> #crate_name::postcard::Result<Vec<u8>> {
                 let mut out = Vec::default();
                 #(
                     if let Some(value) = self.#field_names.take() {
@@ -308,7 +319,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 Ok(out)
             }
 
-            pub(crate) fn deserialize_remaining(&mut self, mut bytes: &[u8]) -> #crate_name::postcard::Result<()> {
+            fn deserialize_remaining(&mut self, mut bytes: &[u8]) -> #crate_name::postcard::Result<()> {
                 #(
                     if self.#field_names.is_none() {
                         let (v, rem) = #crate_name::postcard::take_from_bytes::<'_, #field_types>(bytes)?;
@@ -319,7 +330,19 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 assert!(bytes.is_empty(), "did not parse all bytes");
                 Ok(())
             }
+
+            fn serialize_remaining_to_vec(mut self) -> Vec<(String, String, Box<dyn #crate_name::ValidDBType>)> {
+                let mut out = Vec::default();
+                #(
+                    if let Some(value) = self.#field_names.take() {
+                        out.push((stringify!(#field_names).to_string(), stringify!(#field_types).to_string(), Box::new(value) as Box<dyn #crate_name::ValidDBType>));
+
+                    }
+                )*
+                out
+            }
         }
+
 
         impl #impl_generics From<#name #ty_generics> for #maybe_struct_name #ty_generics #where_clause {
             fn from(value: #name #ty_generics) -> Self {

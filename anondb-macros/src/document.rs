@@ -279,7 +279,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 #(
                     out.insert(
                         stringify!(#field_names).to_string(),
-                        (stringify!(#field_types).to_string(), Box::new(self.#field_names) as Box<dyn #crate_name::ValidDBType>)
+                        (<#field_types as #crate_name::ValidDBType>::schema_type_id().to_string(), Box::new(self.#field_names) as Box<dyn #crate_name::ValidDBType>)
                     );
                 )*
                 out
@@ -288,11 +288,14 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         impl #impl_generics #crate_name::AnyDocument for #name #ty_generics #where_clause {
             fn field_types() -> &'static [(&'static str, &'static str)] {
-                &[
-                    #(
-                        (stringify!(#field_names), stringify!(#field_types)),
-                    )*
-                ]
+                use std::sync::LazyLock;
+                static V: LazyLock<Vec<(&'static str, &'static str)>> =
+                    LazyLock::new(|| vec![
+                        #(
+                            (stringify!(#field_names), <#field_types as #crate_name::ValidDBType>::schema_type_id()),
+                        )*
+                    ]);
+                V.as_ref()
             }
         }
 
@@ -335,7 +338,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 let mut out = Vec::default();
                 #(
                     if let Some(value) = self.#field_names.take() {
-                        out.push((stringify!(#field_names).to_string(), stringify!(#field_types).to_string(), Box::new(value) as Box<dyn #crate_name::ValidDBType>));
+                        out.push((stringify!(#field_names).to_string(), <#field_types as #crate_name::ValidDBType>::schema_type_id().into(), Box::new(value) as Box<dyn #crate_name::ValidDBType>));
 
                     }
                 )*

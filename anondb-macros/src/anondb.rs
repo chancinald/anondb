@@ -103,6 +103,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let name = &input.ident;
     // the name of the write transaction struct
     let name_write = quote::format_ident!("{}Write", name);
+    let result_type = quote::quote! { #crate_name::result::Result };
 
     // types on the struct
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -114,7 +115,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
 
         impl #impl_generics #name_write #ty_generics #where_clause {
-            pub async fn commit(self) -> #crate_name::result::Result<()> {
+            pub async fn commit(self) -> #result_type<()> {
                 self.tx.commit().await
             }
 
@@ -135,11 +136,11 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         #(
         impl #impl_generics #crate_name::WriteQueryOperations<#collection_types> for #name_write #ty_generics #where_clause {
-            async fn find_exact(&self, query_doc: <#collection_types as Queryable>::DocumentQuery) -> Result<Option<#collection_types>> {
+            async fn find_exact(&self, query_doc: <#collection_types as Queryable>::DocumentQuery) -> #crate_name::result::Result<Option<#collection_types>> {
                 #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).find_exact(query_doc).await
             }
 
-            async fn delete_exact(&self, query_doc: <#collection_types as Queryable>::DocumentQuery) -> Result<Option<#collection_types>> {
+            async fn delete_exact(&self, query_doc: <#collection_types as Queryable>::DocumentQuery) -> #crate_name::result::Result<Option<#collection_types>> {
                 #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).delete_exact(query_doc).await
             }
 
@@ -147,7 +148,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 &self,
                 query_doc: <#collection_types as Queryable>::DocumentQuery,
                 update_fn: impl FnOnce(#collection_types) -> #collection_types,
-            ) -> Result<Option<#collection_types>> {
+            ) -> #result_type<Option<#collection_types>> {
                 #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).update_exact(query_doc, update_fn).await
             }
         }

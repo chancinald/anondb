@@ -102,9 +102,10 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
 {
     async fn find_exact(&self, query_doc: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
         let query: Query = query_doc.clone().into();
-        if let Some(key) = self.collection.primary_index.key_maybe(&query)
-            && let Some(item) = self.tx.get(&self.collection.name, &key).await?
-        {
+        if let Some(key) = self.collection.primary_index.key_maybe(&query) {
+            let Some(item) = self.tx.get(&self.collection.name, &key).await? else {
+                return Ok(None);
+            };
             let doc = self
                 .collection
                 .primary_index
@@ -129,14 +130,23 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
                 return Ok(None);
             }
         }
-        anyhow::bail!("Query did not fully specify a primary key or unique index key.")
+        anyhow::bail!(
+            "Write transaction query did not fully specify a primary key or unique index key: {:?}",
+            query_doc
+        )
     }
 
     async fn delete_exact(&self, query_doc: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
         if let Some(doc) = self.find_exact(query_doc).await? {
-            // self.delete_exact(query_doc).await
+            let key = self.collection.primary_index.serialize_key(&doc);
+            self.tx.remove(self.collection.name(), &key).await?;
+            for index in self.collection.indices.iter() {
+                index.delete(self.tx, &doc, &key).await?;
+            }
+            Ok(Some(doc))
+        } else {
+            Ok(None)
         }
-        unimplemented!()
     }
 
     async fn update_exact(
@@ -144,6 +154,16 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
         query_doc: <T as Queryable>::DocumentQuery,
         update_fn: impl FnOnce(T) -> T,
     ) -> Result<Option<T>> {
-        unimplemented!()
+        if let Some(doc) = self.find_exact(query_doc).await? {
+            let doc = update_fn(doc);
+            let (key, value) = self.collection.primary_index.serialize_key_doc(&doc);
+            self.tx.insert(self.collection.name(), &key, &value).await?;
+            for index in self.collection.indices.iter() {
+                index.insert(self.tx, &doc, &key).await?;
+            }
+            Ok(Some(doc))
+        } else {
+            Ok(None)
+        }
     }
 }

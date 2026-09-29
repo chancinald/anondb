@@ -420,9 +420,10 @@ impl<T: CollectionDocument + 'static, K: KV> QueryOperations<T> for Collection<T
 impl<T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T> for Collection<T, K> {
     async fn find_exact(&self, query_doc: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
         let query: Query = query_doc.clone().into();
-        if let Some(key) = self.primary_index.key_maybe(&query)
-            && let Some(item) = self.kv.get(&self.name, &key).await?
-        {
+        if let Some(key) = self.primary_index.key_maybe(&query) {
+            let Some(item) = self.kv.get(&self.name, &key).await? else {
+                return Ok(None);
+            };
             let doc = self
                 .primary_index
                 .deserialize(item.key(), item.value().await);
@@ -446,7 +447,10 @@ impl<T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T> for Collect
                 return Ok(None);
             }
         }
-        anyhow::bail!("Query did not fully specify a primary key or unique index key.")
+        anyhow::bail!(
+            "Query did not fully specify a primary key or unique index key: {:?}",
+            query_doc
+        )
     }
 
     async fn update_exact(
@@ -454,11 +458,19 @@ impl<T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T> for Collect
         query_doc: <T as Queryable>::DocumentQuery,
         update_fn: impl FnOnce(T) -> T,
     ) -> Result<Option<T>> {
-        unimplemented!()
+        let tx = self.kv.write_tx().await?;
+        let write = CollectionWrite::new(&self, &tx);
+        let out = write.update_exact(query_doc, update_fn).await?;
+        tx.commit().await?;
+        Ok(out)
     }
 
     async fn delete_exact(&self, query_doc: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
-        unimplemented!()
+        let tx = self.kv.write_tx().await?;
+        let write = CollectionWrite::new(&self, &tx);
+        let out = write.delete_exact(query_doc).await?;
+        tx.commit().await?;
+        Ok(out)
     }
 }
 

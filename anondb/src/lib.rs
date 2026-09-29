@@ -71,7 +71,7 @@ pub trait QueryFor<T: CollectionDocument + 'static, P: WriteQueryOperations<T> +
 
 /// A trait representing a document which may be queried.
 pub trait Queryable: Send + Sync {
-    type DocumentQuery: Clone + Default + Send + Sync + Into<Query>;
+    type DocumentQuery: Clone + Default + Send + Sync + Into<Query> + std::fmt::Debug;
     type RunnableDocumentQuery<'a, P: WriteQueryOperations<Self> + Send + Sync + 'a>: RunnableQuery<'a, P>
         + Send
         + Sync

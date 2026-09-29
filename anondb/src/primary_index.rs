@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use anyhow::Result;
+
 use super::*;
 
 #[derive(Debug, Clone)]
@@ -8,8 +10,8 @@ pub struct PrimaryIndex<T: CollectionDocument> {
     ///
     /// Serialize to a key, value pair. Fields will be de-duplicated
     /// when possible.
-    serialize_fn: Arc<fn(&T, bool) -> (Vec<u8>, Option<Vec<u8>>)>,
-    deserialize_fn: Arc<fn(&[u8]) -> <T as CollectionDocument>::MaybeStruct>,
+    serialize_fn: Arc<fn(&T, bool) -> Result<(Vec<u8>, Option<Vec<u8>>)>>,
+    deserialize_fn: Arc<fn(&[u8]) -> Result<<T as CollectionDocument>::MaybeStruct>>,
     /// The field names of the document type along with the byte length (if constant)
     key_fields: Arc<Vec<(String, OwnedLexStats)>>,
 }
@@ -45,8 +47,8 @@ impl<T: CollectionDocument> PrimaryIndex<T> {
 impl<T: CollectionDocument> PrimaryIndex<T> {
     pub fn new(
         key_fields: Vec<(String, OwnedLexStats)>,
-        serialize_fn: fn(&T, bool) -> (Vec<u8>, Option<Vec<u8>>),
-        deserialize_fn: fn(&[u8]) -> T::MaybeStruct,
+        serialize_fn: fn(&T, bool) -> Result<(Vec<u8>, Option<Vec<u8>>)>,
+        deserialize_fn: fn(&[u8]) -> Result<T::MaybeStruct>,
     ) -> Self {
         Self {
             serialize_fn: serialize_fn.into(),
@@ -59,28 +61,34 @@ impl<T: CollectionDocument> PrimaryIndex<T> {
         self.key_fields.as_ref()
     }
 
-    pub fn serialize_key(&self, doc: &T) -> Vec<u8> {
-        (self.serialize_fn)(doc, false).0
+    pub fn serialize_key(&self, doc: &T) -> Result<Vec<u8>> {
+        Ok((self.serialize_fn)(doc, false)?.0)
     }
 
-    pub fn serialize_key_doc(&self, doc: &T) -> (Vec<u8>, Vec<u8>) {
-        let (key, val_maybe) = (self.serialize_fn)(doc, true);
-        (key, val_maybe.expect(""))
+    pub fn serialize_key_doc(&self, doc: &T) -> Result<(Vec<u8>, Vec<u8>)> {
+        let (key, val_maybe) = (self.serialize_fn)(doc, true)?;
+        Ok((
+            key,
+            val_maybe.ok_or_else(|| anyhow::anyhow!("document did not serialize value"))?,
+        ))
     }
 
-    pub fn deserialize_key(&self, key: &[u8]) -> Vec<(String, String, Box<dyn ValidDBType>)> {
-        let maybe_doc = (self.deserialize_fn)(key);
+    pub fn deserialize_key(
+        &self,
+        key: &[u8],
+    ) -> Result<Vec<(String, String, Box<dyn ValidDBType>)>> {
+        let maybe_doc = (self.deserialize_fn)(key)?;
         let out = maybe_doc.serialize_remaining_to_vec();
         assert_eq!(out.len(), self.key_fields.len());
         for (v, x) in out.iter().zip(self.key_fields.iter()) {
             assert_eq!(v.0, x.0);
         }
-        out
+        Ok(out)
     }
 
-    pub fn deserialize(&self, key: &[u8], value: &[u8]) -> T {
-        let mut maybe_doc = (self.deserialize_fn)(key);
-        maybe_doc.deserialize_remaining(value).unwrap();
-        maybe_doc.into()
+    pub fn deserialize(&self, key: &[u8], value: &[u8]) -> Result<T> {
+        let mut maybe_doc = (self.deserialize_fn)(key)?;
+        maybe_doc.deserialize_remaining(value)?;
+        Ok(maybe_doc.try_into()?)
     }
 }

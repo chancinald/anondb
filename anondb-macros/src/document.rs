@@ -13,9 +13,20 @@ pub struct FieldDef {
     attrs: FieldAttrs,
 }
 
+impl FieldDef {
+    pub fn ty(&self) -> &Type {
+        if let Some(try_as_type) = self.attrs.try_as_type_maybe.as_ref() {
+            try_as_type
+        } else {
+            &self.ty
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct FieldAttrs {
     is_skip: bool,
+    try_as_type_maybe: Option<Type>,
     default_fn_maybe: Option<String>,
 }
 
@@ -24,6 +35,7 @@ impl Parse for FieldAttrs {
         let field_list = Punctuated::<Expr, Token![,]>::parse_separated_nonempty(input)?;
         let mut default_fn_maybe: Option<String> = None;
         let mut is_skip = false;
+        let mut try_as_type_maybe = None;
         for field in field_list.into_iter() {
             match field {
                 Expr::Path(name) => {
@@ -45,26 +57,40 @@ impl Parse for FieldAttrs {
                             "expected expression lhs to be path",
                         )),
                     }?;
-                    if &left.to_string() != "default" {
-                        continue;
-                    }
-                    match *expr.right {
-                        Expr::Lit(val) => match val.lit {
-                            Lit::Str(v) => {
-                                default_fn_maybe = Some(v.value().to_string());
+                    if &left.to_string() == "try_as" {
+                        match *expr.right {
+                            Expr::Path(val) => {
+                                try_as_type_maybe = Some(Type::Path(TypePath {
+                                    qself: val.qself.clone(),
+                                    path: val.path.clone(),
+                                }));
                             }
                             _ => {
                                 return Err(Error::new(
-                                    val.span(),
-                                    "expected expression rhs to be string literal",
+                                    expr.right.span(),
+                                    "expected expression rhs to be a type",
                                 ));
                             }
-                        },
-                        _ => {
-                            return Err(Error::new(
-                                expr.right.span(),
-                                "expected expression rhs to be literal",
-                            ));
+                        }
+                    } else if &left.to_string() == "default" {
+                        match *expr.right {
+                            Expr::Lit(val) => match val.lit {
+                                Lit::Str(v) => {
+                                    default_fn_maybe = Some(v.value().to_string());
+                                }
+                                _ => {
+                                    return Err(Error::new(
+                                        val.span(),
+                                        "expected expression rhs to be string literal",
+                                    ));
+                                }
+                            },
+                            _ => {
+                                return Err(Error::new(
+                                    expr.right.span(),
+                                    "expected expression rhs to be literal",
+                                ));
+                            }
                         }
                     }
                 }
@@ -74,6 +100,7 @@ impl Parse for FieldAttrs {
         Ok(Self {
             is_skip,
             default_fn_maybe,
+            try_as_type_maybe,
         })
     }
 }
@@ -166,7 +193,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
     let field_types = fields
         .iter()
         .filter(|f| !f.attrs.is_skip)
-        .map(|f| f.ty.clone())
+        .map(|f| f.ty().clone())
         .collect::<Vec<_>>();
 
     let field_names = fields
@@ -174,9 +201,22 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         .filter(|f| !f.attrs.is_skip)
         .map(|f| f.name.clone())
         .collect::<Vec<_>>();
+    let cast_maybe = fields
+        .iter()
+        .filter(|f| !f.attrs.is_skip)
+        .map(|f| {
+            if let Some(ty) = f.attrs.try_as_type_maybe.as_ref() {
+                quote! {
+                    .clone().try_into().unwrap()
+                }
+            } else {
+                quote::quote! {}
+            }
+        })
+        .collect::<Vec<_>>();
 
     let field_constraints = fields.iter().filter(|f| !f.attrs.is_skip).map(|f| {
-        let field_type = f.ty.clone();
+        let field_type = f.ty().clone();
         quote! {
             const _: fn() = || {
                 fn assert_valid_type<T: #crate_name::ValidDBType>() {}
@@ -230,7 +270,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 self.provider.delete_exact(self.query).await
             }
             pub async fn update_exact(self, f: impl FnOnce(#name) -> #name
-            ) -> #result_type<Option<#name>> {
+            ) -> #result_type<bool> {
                 self.provider.update_exact(self.query, f).await
             }
         }
@@ -271,7 +311,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             #(
                 pub fn #field_names (mut self, value: impl Into<#crate_name::QueryParam<#field_types>>) -> Self {
                     if self.#field_names.is_some() {
-                        println!("anondb: warning, param already set; {}", stringify!(#field_names));
+                        println!("anondb: warning, param already set: {}", stringify!(#field_names));
                     }
                     self.#field_names = Some(value.into());
                     self
@@ -323,7 +363,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             fn matches(&self, query: &Self::DocumentQuery) -> bool {
                 #(
                     if let Some(param) = query.#field_names.as_ref() {
-                        if !param.test(&self.#field_names) {
+                        if !param.test(&(self.#field_names #cast_maybe)) {
                             return false;
                         }
                     }
@@ -338,7 +378,13 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 #(
                     out.insert(
                         stringify!(#field_names).to_string(),
-                        (<#field_types as #crate_name::ValidDBType>::schema_type_id().to_string(), Box::new(self.#field_names) as Box<dyn #crate_name::ValidDBType>)
+                        (
+                            <#field_types as #crate_name::ValidDBType>::schema_type_id().to_string(),
+                            Box::new({
+                                let v: #field_types = self.#field_names #cast_maybe ;
+                                v
+                            }) as Box<dyn #crate_name::ValidDBType>
+                        )
                     );
                 )*
                 out
@@ -396,7 +442,11 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 let mut out = Vec::default();
                 #(
                     if let Some(value) = self.#field_names.take() {
-                        out.push((stringify!(#field_names).to_string(), <#field_types as #crate_name::ValidDBType>::schema_type_id().into(), Box::new(value) as Box<dyn #crate_name::ValidDBType>));
+                        out.push((
+                            stringify!(#field_names).to_string(),
+                            <#field_types as #crate_name::ValidDBType>::schema_type_id().into(),
+                            Box::new(value) as Box<dyn #crate_name::ValidDBType>
+                        ));
 
                     }
                 )*
@@ -405,26 +455,28 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
 
 
-        impl #impl_generics From<#name #ty_generics> for #maybe_struct_name #where_clause {
-            fn from(value: #name #ty_generics) -> Self {
-                Self {
+        impl #impl_generics TryFrom<#name #ty_generics> for #maybe_struct_name #where_clause {
+            type Error = #crate_name::error::Error;
+            fn try_from(value: #name #ty_generics) -> std::result::Result<#maybe_struct_name, Self::Error> {
+                Ok(Self {
                     #(
-                        #field_names: Some(value.#field_names),
+                        #field_names: Some(value.#field_names #cast_maybe),
                     )*
-                }
+                })
             }
         }
 
-        impl #impl_generics Into<#name #ty_generics> for #maybe_struct_name #where_clause {
-            fn into(mut self) -> #name #ty_generics {
-                #name {
+        impl #impl_generics TryInto<#name #ty_generics> for #maybe_struct_name #where_clause {
+            type Error = #crate_name::error::Error;
+            fn try_into(mut self) -> std::result::Result<#name #ty_generics, Self::Error> {
+                Ok(#name {
                     #(
-                        #field_names: self.#field_names.take().expect(""),
+                        #field_names: self.#field_names.take().ok_or(#crate_name::error::anyhow::anyhow!("expected field \"{}\" to be set", stringify!(#field_names)))? #cast_maybe,
                     )*
                     #(
                         #skipped_fields
                     )*
-                }
+                })
             }
         }
     };

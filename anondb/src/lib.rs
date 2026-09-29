@@ -35,6 +35,10 @@ pub use anondb_macros::Document;
 pub mod result {
     pub use anyhow::Result;
 }
+pub mod error {
+    pub use anyhow;
+    pub use anyhow::Error;
+}
 
 pub use futures;
 pub use postcard;
@@ -52,7 +56,9 @@ where
     /// For static incremental encoding and decoding.
     /// This type has the exact same fields as the document, but with
     /// each field wrapped in Option<>
-    type MaybeStruct: MaybeSer + Into<Self> + From<Self>;
+    type MaybeStruct: MaybeSer
+        + TryInto<Self, Error = anyhow::Error>
+        + TryFrom<Self, Error = anyhow::Error>;
 }
 
 pub trait MaybeSer {

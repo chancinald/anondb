@@ -227,7 +227,7 @@ impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
                     })
                     .collect::<Result<LexicographicKey>>()?
                     .into_vec();
-                let new_doc = self.primary_index.deserialize(&key_fields, &state.2);
+                let new_doc = self.primary_index.deserialize(&key_fields, &state.2)?;
                 // TODO: perhaps don't fail if indices conflict in production
                 // fall back to non-accelerated queries to prevent application crashes
                 // always fail fast during development
@@ -289,7 +289,7 @@ impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
                 while let Some(item) = stream.next().await.transpose()? {
                     let doc = self
                         .primary_index
-                        .deserialize(item.key(), item.value().await);
+                        .deserialize(item.key(), item.value().await)?;
                     for index in indices_needing_rebuild.iter() {
                         index.insert(&write_tx, &doc, item.key()).await?;
                     }
@@ -399,7 +399,7 @@ impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
             let out = tx.range(&self.name, scan_range).await?;
             let mut stream = std::pin::pin!(out);
             while let Some(item) = stream.next().await.transpose()? {
-                let doc = self.primary_index.deserialize(item.key(), item.value().await);
+                let doc = self.primary_index.deserialize(item.key(), item.value().await)?;
                 if doc.matches(&query) {
                     yield doc;
                 }
@@ -426,7 +426,7 @@ impl<T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T> for Collect
             };
             let doc = self
                 .primary_index
-                .deserialize(item.key(), item.value().await);
+                .deserialize(item.key(), item.value().await)?;
             return Ok(if doc.matches(&query_doc) {
                 Some(doc)
             } else {
@@ -517,7 +517,7 @@ impl<T: CollectionDocument + 'static, K: KV> ReadWriteQueryOperations<T> for Col
         let mut stream = std::pin::pin!(out);
         while let Some(doc) = stream.next().await.transpose()? {
             if let Some(updated) = update_fn(&doc) {
-                let primary_key = self.primary_index.serialize_key(&doc);
+                let primary_key = self.primary_index.serialize_key(&doc)?;
                 tx.remove(&self.name, &primary_key).await?;
                 for index in self.indices.iter() {
                     index.delete(&tx, &doc, &primary_key).await?;
@@ -539,7 +539,7 @@ impl<T: CollectionDocument + 'static, K: KV> ReadWriteQueryOperations<T> for Col
         let mut stream = std::pin::pin!(out);
         while let Some(doc) = stream.next().await.transpose()? {
             if delete_fn(&doc) {
-                let primary_key = self.primary_index.serialize_key(&doc);
+                let primary_key = self.primary_index.serialize_key(&doc)?;
                 tx.remove(&self.name, &primary_key).await?;
                 for index in self.indices.iter() {
                     index.delete(&tx, &doc, &primary_key).await?;

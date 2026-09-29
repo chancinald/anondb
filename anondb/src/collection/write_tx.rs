@@ -45,7 +45,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> CollectionWrite<'a, T, K> {
         let (primary_key, doc) = self
             .collection
             .primary_index
-            .serialize_key_doc(document.borrow());
+            .serialize_key_doc(document.borrow())?;
         if self
             .tx
             .get(&self.collection.name, &primary_key)
@@ -73,12 +73,12 @@ impl<'a, T: CollectionDocument + 'static, K: KV> CollectionWrite<'a, T, K> {
         let primary_key = self
             .collection
             .primary_index
-            .serialize_key(document.borrow());
+            .serialize_key(document.borrow())?;
         if let Some(out) = self.tx.remove(&self.collection.name, &primary_key).await? {
             let doc = self
                 .collection
                 .primary_index
-                .deserialize(&primary_key, &out);
+                .deserialize(&primary_key, &out)?;
             for index in self.collection.indices.iter() {
                 index.delete(self.tx, &doc, &primary_key).await?;
             }
@@ -109,7 +109,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
             let doc = self
                 .collection
                 .primary_index
-                .deserialize(item.key(), item.value().await);
+                .deserialize(item.key(), item.value().await)?;
             return Ok(if doc.matches(&query_doc) {
                 Some(doc)
             } else {
@@ -138,7 +138,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
 
     async fn delete_exact(&self, query_doc: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
         if let Some(doc) = self.find_exact(query_doc).await? {
-            let key = self.collection.primary_index.serialize_key(&doc);
+            let key = self.collection.primary_index.serialize_key(&doc)?;
             self.tx.remove(self.collection.name(), &key).await?;
             for index in self.collection.indices.iter() {
                 index.delete(self.tx, &doc, &key).await?;
@@ -156,7 +156,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
     ) -> Result<bool> {
         if let Some(doc) = self.find_exact(query_doc).await? {
             let doc = update_fn(doc);
-            let (key, value) = self.collection.primary_index.serialize_key_doc(&doc);
+            let (key, value) = self.collection.primary_index.serialize_key_doc(&doc)?;
             self.tx.insert(self.collection.name(), &key, &value).await?;
             for index in self.collection.indices.iter() {
                 index.insert(self.tx, &doc, &key).await?;

@@ -95,8 +95,8 @@ impl IndexDef {
                              )
                             ),*
                         ],
-                        |doc: &#doc_generic, full_doc: bool| -> (Vec<u8>, Option<Vec<u8>>) {
-                            let mut maybe_struct = MaybeStruct::from(doc.clone());
+                        |doc: &#doc_generic, full_doc: bool| -> #crate_name::result::Result<(Vec<u8>, Option<Vec<u8>>)> {
+                            let mut maybe_struct = MaybeStruct::try_from(doc.clone())?;
                             let mut key = #crate_name::LexicographicKey::default();
                             #(
                                 {
@@ -108,13 +108,13 @@ impl IndexDef {
                                     );
                                 }
                             )*
-                            if full_doc {
-                                (key.into_vec(), Some(maybe_struct.serialize_remaining().expect("document serialization failed")))
+                            Ok(if full_doc {
+                                (key.into_vec(), Some(maybe_struct.serialize_remaining()?))
                             } else {
                                 (key.into_vec(), None)
-                            }
+                            })
                         },
-                        |mut key: &[u8]| -> MaybeStruct {
+                        |mut key: &[u8]| -> #crate_name::result::Result<MaybeStruct> {
                             let mut maybe_struct = MaybeStruct::default();
                             #(
                                 {
@@ -127,7 +127,7 @@ impl IndexDef {
                                         None
                                     };
                                     assert!(maybe_struct.#fields.is_none(), "field aleady parsed");
-                                    let (v, rem) = #crate_name::DeserializeLexicographic::deserialize(key, len_maybe).unwrap();
+                                    let (v, rem) = #crate_name::DeserializeLexicographic::deserialize(key, len_maybe)?;
                                     maybe_struct.#fields = Some(v);
                                     if !rem.is_empty() {
                                         // skip 1 byte separator in the lexicographic key
@@ -140,7 +140,7 @@ impl IndexDef {
                                 }
                             )*
                             assert!(key.is_empty(), "did not parse all key elements, {} remaining", key.len());
-                            maybe_struct
+                            Ok(maybe_struct)
                         }
                     )
                 }
@@ -167,14 +167,14 @@ impl IndexDef {
                              )
                             ),*
                         ],
-                        |doc: &#doc_generic| -> Vec<u8> {
+                        |doc: &#doc_generic| -> #crate_name::result::Result<Vec<u8>> {
                             let mut key = #crate_name::LexicographicKey::default();
                             #(
                                 key.append(&doc.#fields);
                             )*
-                            key.into_vec()
+                            Ok(key.into_vec())
                         },
-                        |mut key: &[u8]| -> MaybeStruct {
+                        |mut key: &[u8]| -> #crate_name::result::Result<MaybeStruct> {
                             let mut maybe_struct = MaybeStruct::default();
                             #(
                                 {
@@ -187,7 +187,7 @@ impl IndexDef {
                                         None
                                     };
                                     assert!(maybe_struct.#fields.is_none(), "field aleady parsed");
-                                    let (v, rem) = #crate_name::DeserializeLexicographic::deserialize(key, len_maybe).unwrap();
+                                    let (v, rem) = #crate_name::DeserializeLexicographic::deserialize(key, len_maybe)?;
                                     maybe_struct.#fields = Some(v);
                                     if !rem.is_empty() {
                                         // skip 1 byte separator in the lexicographic key
@@ -200,7 +200,7 @@ impl IndexDef {
                                 }
                             )*
                             assert!(key.is_empty(), "did not parse all key elements, {} remaining", key.len());
-                            maybe_struct
+                            Ok(maybe_struct)
                         },
                         #crate_name::IndexOptions {
                             #(#options)*

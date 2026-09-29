@@ -148,7 +148,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 &self,
                 query_doc: <#collection_types as Queryable>::DocumentQuery,
                 update_fn: impl FnOnce(#collection_types) -> #collection_types,
-            ) -> #result_type<Option<#collection_types>> {
+            ) -> #result_type<bool> {
                 #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).update_exact(query_doc, update_fn).await
             }
         }
@@ -221,6 +221,12 @@ fn parse_attributes(field: Field) -> Result<(IndexDef, Vec<IndexDef>)> {
                     return Err(Error::new_spanned(
                         attr,
                         "AnonDB primary_key attribute does not support options",
+                    ));
+                }
+                if primary_key_maybe.is_some() {
+                    return Err(Error::new(
+                        attr.span(),
+                        "Primary key may be specified only once!",
                     ));
                 }
                 primary_key_maybe = Some(index_def);

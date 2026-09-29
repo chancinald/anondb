@@ -11,7 +11,7 @@ pub trait AnyIndex {
     fn field_names(&self) -> &Vec<(String, OwnedLexStats)>;
     fn options(&self) -> &IndexOptions;
     fn kv_table_name(&self) -> &str;
-    fn parse_index_key(&self, key: &[u8]) -> Vec<(String, String, Box<dyn ValidDBType>)>;
+    fn parse_index_key(&self, key: &[u8]) -> Result<Vec<(String, String, Box<dyn ValidDBType>)>>;
 }
 
 impl<T: CollectionDocument> AnyIndex for Index<T>
@@ -30,14 +30,14 @@ where
     fn kv_table_name(&self) -> &str {
         &self.kv_table_name
     }
-    fn parse_index_key(&self, key: &[u8]) -> Vec<(String, String, Box<dyn ValidDBType>)> {
-        let maybe_doc = (self.deserialize_key)(key);
+    fn parse_index_key(&self, key: &[u8]) -> Result<Vec<(String, String, Box<dyn ValidDBType>)>> {
+        let maybe_doc = (self.deserialize_key)(key)?;
         let out = maybe_doc.serialize_remaining_to_vec();
         assert_eq!(out.len(), self.field_names.len());
         for (v, x) in out.iter().zip(self.field_names.iter()) {
             assert_eq!(v.0, x.0);
         }
-        out
+        Ok(out)
     }
 }
 
@@ -58,8 +58,8 @@ where
     /// The field names of the document type along with the byte length (if constant)
     pub(crate) field_names: Vec<(String, OwnedLexStats)>,
     /// Take a document of type `T` and serialize it into a lexicographically sortable key
-    pub(crate) serialize_key: Arc<fn(&T) -> Vec<u8>>,
-    pub(crate) deserialize_key: Arc<fn(&[u8]) -> <T as CollectionDocument>::MaybeStruct>,
+    pub(crate) serialize_key: Arc<fn(&T) -> Result<Vec<u8>>>,
+    pub(crate) deserialize_key: Arc<fn(&[u8]) -> Result<<T as CollectionDocument>::MaybeStruct>>,
     /// Options for the index
     options: IndexOptions,
     kv_table_name: String,
@@ -72,8 +72,8 @@ where
     pub fn new(
         collection_name: String,
         field_names: Vec<(String, OwnedLexStats)>,
-        serialize: fn(&T) -> Vec<u8>,
-        deserialize: fn(&[u8]) -> <T as CollectionDocument>::MaybeStruct,
+        serialize: fn(&T) -> Result<Vec<u8>>,
+        deserialize: fn(&[u8]) -> Result<<T as CollectionDocument>::MaybeStruct>,
         options: IndexOptions,
     ) -> Self {
         assert!(!field_names.is_empty(), "attempting to create empty index");
@@ -158,7 +158,7 @@ where
                             "Index \"{}\" referencing primary key that does not exist!",
                             self.kv_table_name
                         ))?;
-                    let doc = primary_index.deserialize(entry.key(), entry.value().await);
+                    let doc = primary_index.deserialize(entry.key(), entry.value().await)?;
                     if doc.matches(&query) {
                         yield doc;
                     }
@@ -190,7 +190,7 @@ where
         doc: impl Borrow<T> + Send + Sync,
         primary_key: &[u8],
     ) -> Result<()> {
-        let key = (self.serialize_key)(doc.borrow());
+        let key = (self.serialize_key)(doc.borrow())?;
         Ok(if self.options.unique {
             let removed_maybe = tx.remove(&self.kv_table_name, key.as_slice()).await?;
             debug_assert!(removed_maybe.is_some(), "index is inconsistent");
@@ -207,7 +207,7 @@ where
         doc: impl Borrow<T> + Send + Sync,
         primary_key: impl AsRef<[u8]> + Send + Sync,
     ) -> Result<()> {
-        let key = (self.serialize_key)(doc.borrow());
+        let key = (self.serialize_key)(doc.borrow())?;
         Ok(if self.options.unique {
             if tx.get(&self.kv_table_name, key.as_slice()).await?.is_some() {
                 anyhow::bail!(
@@ -251,7 +251,7 @@ where
                 )
             })?;
         Ok(Some(
-            primary_index.deserialize(entry.key(), entry.value().await),
+            primary_index.deserialize(entry.key(), entry.value().await)?,
         ))
     }
 

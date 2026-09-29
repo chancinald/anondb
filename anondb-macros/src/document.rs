@@ -110,15 +110,15 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
     let name = &input.ident;
     let generics = &input.generics;
-    let phantom_generics = generics
-        .type_params()
-        .map(|v| {
-            let name = &v.ident;
-            quote! { #name }
-        })
-        .chain(generics.lifetimes().map(|v| quote! { &#v () }))
-        .collect::<Vec<_>>();
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    // generics for the MaybeStruct type
+    let mut maybe_generics = generics.clone();
+    let (maybe_impl_generics, maybe_ty_generics, maybe_where_clause) = {
+        maybe_generics
+            .params
+            .insert(0, syn::GenericParam::Lifetime(syn::parse_quote!('__maybe)));
+        maybe_generics.split_for_impl()
+    };
     let fields = parse_struct_and_fields(&input, "Document")?
         .into_iter()
         .map(|field| {
@@ -205,12 +205,28 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         .iter()
         .filter(|f| !f.attrs.is_skip)
         .map(|f| {
-            if let Some(ty) = f.attrs.try_as_type_maybe.as_ref() {
-                quote! {
-                    .clone().try_into().unwrap()
+            if let Some(_ty) = f.attrs.try_as_type_maybe.as_ref() {
+                quote::quote! {
+                    .clone().try_into()?
                 }
             } else {
                 quote::quote! {}
+            }
+        })
+        .collect::<Vec<_>>();
+    let try_from_fields = fields
+        .iter()
+        .filter(|f| !f.attrs.is_skip)
+        .map(|f| {
+            let name = &f.name;
+            if let Some(_ty) = f.attrs.try_as_type_maybe.as_ref() {
+                quote! {
+                    std::borrow::Cow::Owned(value.#name.clone().try_into()?)
+                }
+            } else {
+                quote! {
+                    std::borrow::Cow::Borrowed(&value.#name)
+                }
             }
         })
         .collect::<Vec<_>>();
@@ -335,7 +351,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         impl #impl_generics #crate_name::CollectionDocument for #name #ty_generics #where_clause {
             type DocumentPhantom = #phantom_struct_name;
-            type MaybeStruct = #maybe_struct_name;
+            type MaybeStruct<'a> = #maybe_struct_name<'a>;
         }
 
         #[derive(Debug)]
@@ -360,20 +376,20 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             type DocumentQuery = #query_struct_name;
             type RunnableDocumentQuery<'a, P: #crate_name::WriteQueryOperations<Self> + Send + Sync + 'a> = #runnable_query_struct_name<'a, P>;
 
-            fn matches(&self, query: &Self::DocumentQuery) -> bool {
+            fn matches(&self, query: &Self::DocumentQuery) -> #result_type <bool> {
                 #(
                     if let Some(param) = query.#field_names.as_ref() {
                         if !param.test(&(self.#field_names #cast_maybe)) {
-                            return false;
+                            return Ok(false);
                         }
                     }
                 )*
-                true
+                Ok(true)
             }
         }
 
         impl #impl_generics #crate_name::ParseableDocument for #name #ty_generics #where_clause {
-            fn into_map(self) -> std::collections::BTreeMap<String, (String, Box<dyn #crate_name::ValidDBType>)> {
+            fn into_map(self) -> #result_type <std::collections::BTreeMap<String, (String, Box<dyn #crate_name::ValidDBType>)>> {
                 let mut out = std::collections::BTreeMap::default();
                 #(
                     out.insert(
@@ -387,7 +403,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                         )
                     );
                 )*
-                out
+                Ok(out)
             }
         }
 
@@ -410,16 +426,29 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
         #[derive(Debug, Default)]
         #[allow(non_camel_case_types)]
-        pub struct #maybe_struct_name {
-            #(pub #field_names : Option<#field_types>),*
+        pub struct #maybe_struct_name #maybe_impl_generics {
+            #(pub #field_names : Option<std::borrow::Cow<'__maybe, #field_types>>),*
         }
 
-        impl #crate_name::MaybeSer for #maybe_struct_name {
+        impl #maybe_impl_generics #maybe_struct_name #maybe_ty_generics #maybe_where_clause {
+            #(
+                /// used to get a strongly typed borrow to the field internally
+                /// routing through Cow::borrow
+                pub fn #field_names(&self) -> Option<&#field_types> {
+                    use std::borrow::Borrow;
+                    self.#field_names.as_ref().map(|v| v.borrow())
+                }
+            )*
+
+        }
+
+        impl #maybe_impl_generics #crate_name::MaybeSer for #maybe_struct_name #maybe_ty_generics #maybe_where_clause {
             fn serialize_remaining(mut self) -> #crate_name::postcard::Result<Vec<u8>> {
                 let mut out = Vec::default();
+                use std::borrow::Borrow;
                 #(
-                    if let Some(value) = self.#field_names.take() {
-                        out = #crate_name::postcard::to_extend(&value, out)?;
+                    if let Some(value) = self.#field_names.as_ref() {
+                        out = #crate_name::postcard::to_extend(value.borrow() as &#field_types, out)?;
 
                     }
                 )*
@@ -430,7 +459,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 #(
                     if self.#field_names.is_none() {
                         let (v, rem) = #crate_name::postcard::take_from_bytes::<'_, #field_types>(bytes)?;
-                        self.#field_names = Some(v);
+                        self.#field_names = Some(std::borrow::Cow::Owned(v));
                         bytes = rem;
                     }
                 )*
@@ -445,7 +474,7 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                         out.push((
                             stringify!(#field_names).to_string(),
                             <#field_types as #crate_name::ValidDBType>::schema_type_id().into(),
-                            Box::new(value) as Box<dyn #crate_name::ValidDBType>
+                            Box::new(value.into_owned()) as Box<dyn #crate_name::ValidDBType>
                         ));
 
                     }
@@ -455,23 +484,25 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         }
 
 
-        impl #impl_generics TryFrom<#name #ty_generics> for #maybe_struct_name #where_clause {
+        impl #maybe_impl_generics TryFrom<&'__maybe #name #ty_generics> for #maybe_struct_name #maybe_ty_generics #maybe_where_clause {
             type Error = #crate_name::error::Error;
-            fn try_from(value: #name #ty_generics) -> std::result::Result<#maybe_struct_name, Self::Error> {
+            fn try_from(value: &'__maybe #name #ty_generics) -> std::result::Result<#maybe_struct_name #maybe_ty_generics, Self::Error> {
                 Ok(Self {
                     #(
-                        #field_names: Some(value.#field_names #cast_maybe),
+                        #field_names: Some(
+                            #try_from_fields
+                        ),
                     )*
                 })
             }
         }
 
-        impl #impl_generics TryInto<#name #ty_generics> for #maybe_struct_name #where_clause {
+        impl #maybe_impl_generics TryInto<#name #ty_generics> for #maybe_struct_name #maybe_ty_generics #maybe_where_clause {
             type Error = #crate_name::error::Error;
             fn try_into(mut self) -> std::result::Result<#name #ty_generics, Self::Error> {
                 Ok(#name {
                     #(
-                        #field_names: self.#field_names.take().ok_or(#crate_name::error::anyhow::anyhow!("expected field \"{}\" to be set", stringify!(#field_names)))? #cast_maybe,
+                        #field_names: self.#field_names.take().ok_or(#crate_name::error::anyhow::anyhow!("expected field \"{}\" to be set", stringify!(#field_names)))?.into_owned() #cast_maybe,
                     )*
                     #(
                         #skipped_fields

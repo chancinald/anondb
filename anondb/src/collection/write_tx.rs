@@ -110,7 +110,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
                 .collection
                 .primary_index
                 .deserialize(item.key(), item.value().await)?;
-            return Ok(if doc.matches(&query_doc) {
+            return Ok(if doc.matches(&query_doc)? {
                 Some(doc)
             } else {
                 None
@@ -123,7 +123,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
             if let Some(doc) = index
                 .get_exact(&self.collection.primary_index, self.tx, &query)
                 .await?
-                && doc.matches(&query_doc)
+                && doc.matches(&query_doc)?
             {
                 return Ok(Some(doc));
             } else {

@@ -1,4 +1,3 @@
-mod cast_as;
 mod exact;
 mod index;
 mod insert;
@@ -8,6 +7,7 @@ mod primary_key;
 mod query;
 mod range;
 mod skip_default;
+mod try_as;
 mod unique_index;
 mod update;
 

@@ -79,7 +79,7 @@ impl IndexDef {
                 quote! {
                         {
                             type DocumentPhantom = <#doc_generic as #crate_name::CollectionDocument>::DocumentPhantom;
-                            type MaybeStruct = <#doc_generic as #crate_name::CollectionDocument>::MaybeStruct;
+                            type MaybeStruct<'a> = <#doc_generic as #crate_name::CollectionDocument>::MaybeStruct<'a>;
                             #(
                                 const _: () = assert!(
                                     #is_last_field ||
@@ -96,12 +96,12 @@ impl IndexDef {
                             ),*
                         ],
                         |doc: &#doc_generic, full_doc: bool| -> #crate_name::result::Result<(Vec<u8>, Option<Vec<u8>>)> {
-                            let mut maybe_struct = MaybeStruct::try_from(doc.clone())?;
+                            let mut maybe_struct = MaybeStruct::try_from(doc)?;
                             let mut key = #crate_name::LexicographicKey::default();
                             #(
                                 {
-                                    let v = maybe_struct.#fields.take().expect("field already taken");
-                                    key.append(&v);
+                                    key.append(maybe_struct.#fields().expect("field already taken"));
+                                    maybe_struct.#fields = None;
                                     assert!(
                                         #is_last_field || DocumentPhantom::#fields().fixed_width.is_some(),
                                         #field_width_errors
@@ -114,7 +114,7 @@ impl IndexDef {
                                 (key.into_vec(), None)
                             })
                         },
-                        |mut key: &[u8]| -> #crate_name::result::Result<MaybeStruct> {
+                        |mut key: &[u8]| -> #crate_name::result::Result<MaybeStruct<'_>> {
                             let mut maybe_struct = MaybeStruct::default();
                             #(
                                 {
@@ -128,7 +128,7 @@ impl IndexDef {
                                     };
                                     assert!(maybe_struct.#fields.is_none(), "field aleady parsed");
                                     let (v, rem) = #crate_name::DeserializeLexicographic::deserialize(key, len_maybe)?;
-                                    maybe_struct.#fields = Some(v);
+                                    maybe_struct.#fields = Some(std::borrow::Cow::Owned(v));
                                     if !rem.is_empty() {
                                         // skip 1 byte separator in the lexicographic key
                                         let (sep, rem) = rem.split_at(1);
@@ -150,7 +150,7 @@ impl IndexDef {
                 quote! {
                     {
                             type DocumentPhantom = <#doc_generic as #crate_name::CollectionDocument>::DocumentPhantom;
-                            type MaybeStruct = <#doc_generic as #crate_name::CollectionDocument>::MaybeStruct;
+                            type MaybeStruct<'a> = <#doc_generic as #crate_name::CollectionDocument>::MaybeStruct<'a>;
                         #(
                             const _: () = assert!(
                                 #is_last_field ||
@@ -168,13 +168,14 @@ impl IndexDef {
                             ),*
                         ],
                         |doc: &#doc_generic| -> #crate_name::result::Result<Vec<u8>> {
+                            let mut maybe_struct = MaybeStruct::try_from(doc)?;
                             let mut key = #crate_name::LexicographicKey::default();
                             #(
-                                key.append(&doc.#fields);
+                                key.append(maybe_struct.#fields().unwrap());
                             )*
                             Ok(key.into_vec())
                         },
-                        |mut key: &[u8]| -> #crate_name::result::Result<MaybeStruct> {
+                        |mut key: &[u8]| -> #crate_name::result::Result<MaybeStruct<'_>> {
                             let mut maybe_struct = MaybeStruct::default();
                             #(
                                 {
@@ -188,7 +189,7 @@ impl IndexDef {
                                     };
                                     assert!(maybe_struct.#fields.is_none(), "field aleady parsed");
                                     let (v, rem) = #crate_name::DeserializeLexicographic::deserialize(key, len_maybe)?;
-                                    maybe_struct.#fields = Some(v);
+                                    maybe_struct.#fields = Some(std::borrow::Cow::Owned(v));
                                     if !rem.is_empty() {
                                         // skip 1 byte separator in the lexicographic key
                                         let (sep, rem) = rem.split_at(1);

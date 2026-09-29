@@ -6,7 +6,7 @@ pub struct CastTo {
 }
 
 impl TryInto<CastTo> for u128 {
-    type Error = ();
+    type Error = anyhow::Error;
     fn try_into(self) -> std::result::Result<CastTo, Self::Error> {
         Ok(CastTo { val: self })
     }

@@ -59,7 +59,8 @@ where
     pub(crate) field_names: Vec<(String, OwnedLexStats)>,
     /// Take a document of type `T` and serialize it into a lexicographically sortable key
     pub(crate) serialize_key: Arc<fn(&T) -> Result<Vec<u8>>>,
-    pub(crate) deserialize_key: Arc<fn(&[u8]) -> Result<<T as CollectionDocument>::MaybeStruct>>,
+    pub(crate) deserialize_key:
+        Arc<fn(&[u8]) -> Result<<T as CollectionDocument>::MaybeStruct<'_>>>,
     /// Options for the index
     options: IndexOptions,
     kv_table_name: String,
@@ -73,7 +74,7 @@ where
         collection_name: String,
         field_names: Vec<(String, OwnedLexStats)>,
         serialize: fn(&T) -> Result<Vec<u8>>,
-        deserialize: fn(&[u8]) -> Result<<T as CollectionDocument>::MaybeStruct>,
+        deserialize: fn(&[u8]) -> Result<<T as CollectionDocument>::MaybeStruct<'_>>,
         options: IndexOptions,
     ) -> Self {
         assert!(!field_names.is_empty(), "attempting to create empty index");
@@ -159,7 +160,7 @@ where
                             self.kv_table_name
                         ))?;
                     let doc = primary_index.deserialize(entry.key(), entry.value().await)?;
-                    if doc.matches(&query) {
+                    if doc.matches(&query)? {
                         yield doc;
                     }
                 }

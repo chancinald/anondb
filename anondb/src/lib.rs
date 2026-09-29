@@ -48,7 +48,7 @@ pub(crate) const NAME_SEPARATOR: &'static str = "___";
 pub trait CollectionDocument:
     Clone + Queryable + AnyDocument + ParseableDocument + Migrateable
 where
-    Self: Sized,
+    Self: Sized + 'static,
 {
     /// Used to access the types of fields by name. Accessors generated in
     /// anondb-macros/src/document.rs
@@ -56,9 +56,9 @@ where
     /// For static incremental encoding and decoding.
     /// This type has the exact same fields as the document, but with
     /// each field wrapped in Option<>
-    type MaybeStruct: MaybeSer
+    type MaybeStruct<'a>: MaybeSer
         + TryInto<Self, Error = anyhow::Error>
-        + TryFrom<Self, Error = anyhow::Error>;
+        + TryFrom<&'a Self, Error = anyhow::Error>;
 }
 
 pub trait MaybeSer {
@@ -88,8 +88,10 @@ pub trait Queryable: Send + Sync {
         Self::DocumentQuery::default()
     }
 
-    /// Test if a document matches a query
-    fn matches(&self, query: &Self::DocumentQuery) -> bool;
+    /// Test if a document matches a query.
+    /// Errors only if external type casting fails.
+    /// e.g. try_from/try_into from an external enum in the schema.
+    fn matches(&self, query: &Self::DocumentQuery) -> anyhow::Result<bool>;
 }
 
 /// Trait for reflecting document types.
@@ -106,7 +108,9 @@ pub trait AnyDocument {
 
 pub trait ParseableDocument {
     /// Convert to a hashmap of field names keyed to field type and type erased value.
-    fn into_map(self) -> std::collections::BTreeMap<String, (String, Box<dyn ValidDBType>)>;
+    fn into_map(
+        self,
+    ) -> anyhow::Result<std::collections::BTreeMap<String, (String, Box<dyn ValidDBType>)>>;
 }
 
 pub trait Migrateable {

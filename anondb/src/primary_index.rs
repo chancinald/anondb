@@ -11,7 +11,7 @@ pub struct PrimaryIndex<T: CollectionDocument> {
     /// Serialize to a key, value pair. Fields will be de-duplicated
     /// when possible.
     serialize_fn: Arc<fn(&T, bool) -> Result<(Vec<u8>, Option<Vec<u8>>)>>,
-    deserialize_fn: Arc<fn(&[u8]) -> Result<<T as CollectionDocument>::MaybeStruct>>,
+    deserialize_fn: Arc<fn(&[u8]) -> Result<<T as CollectionDocument>::MaybeStruct<'_>>>,
     /// The field names of the document type along with the byte length (if constant)
     key_fields: Arc<Vec<(String, OwnedLexStats)>>,
 }
@@ -48,7 +48,7 @@ impl<T: CollectionDocument> PrimaryIndex<T> {
     pub fn new(
         key_fields: Vec<(String, OwnedLexStats)>,
         serialize_fn: fn(&T, bool) -> Result<(Vec<u8>, Option<Vec<u8>>)>,
-        deserialize_fn: fn(&[u8]) -> Result<T::MaybeStruct>,
+        deserialize_fn: fn(&[u8]) -> Result<T::MaybeStruct<'_>>,
     ) -> Self {
         Self {
             serialize_fn: serialize_fn.into(),

@@ -63,7 +63,7 @@ impl<T: CollectionDocument + 'static, K: KV> AnyCollection<K> for Collection<T, 
         Vec<(String, String, Box<dyn ValidDBType>)>,
         BTreeMap<String, (String, Box<dyn ValidDBType>)>,
     )> {
-        let mut entries = self.primary_index.deserialize(key, value)?.into_map();
+        let mut entries = self.primary_index.deserialize(key, value)?.into_map()?;
         let mut key_entries = Vec::with_capacity(self.primary_key_field_names().len());
         for (name, _) in self.primary_key_field_names().iter() {
             let entry = entries

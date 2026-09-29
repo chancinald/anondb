@@ -400,7 +400,7 @@ impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
             let mut stream = std::pin::pin!(out);
             while let Some(item) = stream.next().await.transpose()? {
                 let doc = self.primary_index.deserialize(item.key(), item.value().await)?;
-                if doc.matches(&query) {
+                if doc.matches(&query)? {
                     yield doc;
                 }
             }
@@ -427,7 +427,7 @@ impl<T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T> for Collect
             let doc = self
                 .primary_index
                 .deserialize(item.key(), item.value().await)?;
-            return Ok(if doc.matches(&query_doc) {
+            return Ok(if doc.matches(&query_doc)? {
                 Some(doc)
             } else {
                 None
@@ -440,7 +440,7 @@ impl<T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T> for Collect
             if let Some(doc) = index
                 .get_exact(&self.primary_index, &self.kv.read_tx().await?, &query)
                 .await?
-                && doc.matches(&query_doc)
+                && doc.matches(&query_doc)?
             {
                 return Ok(Some(doc));
             } else {

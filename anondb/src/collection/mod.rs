@@ -47,7 +47,7 @@ pub trait WriteQueryOperations<T: CollectionDocument> {
         &self,
         query_doc: <T as Queryable>::DocumentQuery,
         update_fn: impl FnOnce(T) -> T,
-    ) -> impl Future<Output = Result<Option<T>>>;
+    ) -> impl Future<Output = Result<bool>>;
     fn delete_exact(
         &self,
         query_doc: <T as Queryable>::DocumentQuery,
@@ -457,7 +457,7 @@ impl<T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T> for Collect
         &self,
         query_doc: <T as Queryable>::DocumentQuery,
         update_fn: impl FnOnce(T) -> T,
-    ) -> Result<Option<T>> {
+    ) -> Result<bool> {
         let tx = self.kv.write_tx().await?;
         let write = CollectionWrite::new(&self, &tx);
         let out = write.update_exact(query_doc, update_fn).await?;

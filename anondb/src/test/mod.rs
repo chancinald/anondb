@@ -1,3 +1,4 @@
+mod exact;
 mod index;
 mod insert;
 mod migrations;

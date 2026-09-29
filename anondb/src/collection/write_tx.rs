@@ -153,7 +153,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
         &self,
         query_doc: <T as Queryable>::DocumentQuery,
         update_fn: impl FnOnce(T) -> T,
-    ) -> Result<Option<T>> {
+    ) -> Result<bool> {
         if let Some(doc) = self.find_exact(query_doc).await? {
             let doc = update_fn(doc);
             let (key, value) = self.collection.primary_index.serialize_key_doc(&doc);
@@ -161,9 +161,9 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
             for index in self.collection.indices.iter() {
                 index.insert(self.tx, &doc, &key).await?;
             }
-            Ok(Some(doc))
+            Ok(true)
         } else {
-            Ok(None)
+            Ok(false)
         }
     }
 }

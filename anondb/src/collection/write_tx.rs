@@ -1,14 +1,67 @@
+use std::ops::Deref;
+
 use super::*;
 
-#[derive(Debug, Clone)]
+/// std::borrow::Cow doesn't work because WriteTransaction does not implement Clone
+#[derive(Debug)]
+pub enum OwnedOrBorrowed<'a, T> {
+    Borrowed(&'a T),
+    Owned(T),
+}
+
+impl<T> OwnedOrBorrowed<'_, T> {
+    pub fn try_into_inner(self) -> Result<T> {
+        match self {
+            Self::Borrowed(_) => {
+                anyhow::bail!("cannot move out of borrowed variant")
+            }
+            Self::Owned(v) => Ok(v),
+        }
+    }
+}
+
+impl<'a, T> Deref for OwnedOrBorrowed<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Borrowed(v) => v,
+            Self::Owned(v) => &v,
+        }
+    }
+}
+
+impl<'a, T> AsRef<T> for OwnedOrBorrowed<'a, T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            Self::Borrowed(v) => v,
+            Self::Owned(v) => &v,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct CollectionWrite<'a, T: CollectionDocument, K: KV> {
-    pub(crate) tx: &'a K::WriteTransaction,
+    pub(crate) tx: OwnedOrBorrowed<'a, K::WriteTransaction>,
     collection: &'a Collection<T, K>,
 }
 
 impl<'a, T: CollectionDocument + 'static, K: KV> CollectionWrite<'a, T, K> {
+    pub fn new_owned(collection: &'a Collection<T, K>, tx: K::WriteTransaction) -> Self {
+        Self {
+            tx: OwnedOrBorrowed::Owned(tx),
+            collection,
+        }
+    }
+
     pub fn new(collection: &'a Collection<T, K>, tx: &'a K::WriteTransaction) -> Self {
-        Self { tx, collection }
+        Self {
+            tx: OwnedOrBorrowed::Borrowed(tx),
+            collection,
+        }
+    }
+
+    pub async fn commit(self) -> Result<()> {
+        self.tx.try_into_inner()?.commit().await
     }
 
     pub fn query(&'a self) -> T::RunnableDocumentQuery<'a, Self> {
@@ -62,7 +115,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> CollectionWrite<'a, T, K> {
             .await?;
         for index in self.collection.indices.iter() {
             index
-                .insert(self.tx, document.borrow(), &primary_key)
+                .insert(self.tx.as_ref(), document.borrow(), &primary_key)
                 .await?;
         }
         Ok(())
@@ -80,7 +133,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> CollectionWrite<'a, T, K> {
                 .primary_index
                 .deserialize(&primary_key, &out)?;
             for index in self.collection.indices.iter() {
-                index.delete(self.tx, &doc, &primary_key).await?;
+                index.delete(self.tx.as_ref(), &doc, &primary_key).await?;
             }
         }
         self.insert(document).await?;
@@ -91,7 +144,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> CollectionWrite<'a, T, K> {
     pub async fn clear(&self) -> Result<()> {
         self.tx.clear(self.collection.name()).await?;
         for index in self.collection.indices.iter() {
-            index.clear(self.tx).await?;
+            index.clear(self.tx.as_ref()).await?;
         }
         Ok(())
     }
@@ -121,7 +174,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
                 continue;
             }
             if let Some(doc) = index
-                .get_exact(&self.collection.primary_index, self.tx, &query)
+                .get_exact(&self.collection.primary_index, self.tx.as_ref(), &query)
                 .await?
                 && doc.matches(&query_doc)?
             {
@@ -141,7 +194,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
             let key = self.collection.primary_index.serialize_key(&doc)?;
             self.tx.remove(self.collection.name(), &key).await?;
             for index in self.collection.indices.iter() {
-                index.delete(self.tx, &doc, &key).await?;
+                index.delete(self.tx.as_ref(), &doc, &key).await?;
             }
             Ok(Some(doc))
         } else {
@@ -159,7 +212,7 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
             let (key, value) = self.collection.primary_index.serialize_key_doc(&doc)?;
             self.tx.insert(self.collection.name(), &key, &value).await?;
             for index in self.collection.indices.iter() {
-                index.insert(self.tx, &doc, &key).await?;
+                index.insert(self.tx.as_ref(), &doc, &key).await?;
             }
             Ok(true)
         } else {

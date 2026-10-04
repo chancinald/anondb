@@ -98,10 +98,9 @@ impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
 
     /// Retrieve a monotonic id specific to this table.
     pub async fn monotonic_id(&self) -> Result<u64> {
-        let write_tx = self.kv.write_tx().await?;
-        let write = CollectionWrite::new(&self, &write_tx);
+        let write = self.write_tx().await?;
         let id = write.monotonic_id().await?;
-        write_tx.commit().await?;
+        write.commit().await?;
         Ok(id)
     }
 
@@ -320,6 +319,10 @@ impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
     /// Get a reference to the backing KV.
     pub fn kv(&self) -> K {
         self.kv.clone()
+    }
+
+    pub async fn write_tx(&self) -> Result<CollectionWrite<'_, T, K>> {
+        Ok(CollectionWrite::new_owned(self, self.kv.write_tx().await?))
     }
 
     /// The name of the collection. This is the name of the table that will be used in the

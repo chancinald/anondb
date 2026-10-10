@@ -135,29 +135,38 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 
 
         #(
-        impl #impl_generics #crate_name::WriteQueryOperations<#collection_types> for #name_write #ty_generics #where_clause {
-            async fn find_exact(&self, query_doc: <#collection_types as Queryable>::DocumentQuery) -> #crate_name::result::Result<Option<#collection_types>> {
-                #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).find_exact(query_doc).await
-            }
-
-            async fn delete_exact(&self, query_doc: <#collection_types as Queryable>::DocumentQuery) -> #crate_name::result::Result<Option<#collection_types>> {
-                #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).delete_exact(query_doc).await
-            }
-
-            async fn update_exact(
-                &self,
-                query_doc: <#collection_types as Queryable>::DocumentQuery,
-                update_fn: impl FnOnce(#collection_types) -> #collection_types,
-            ) -> #result_type<bool> {
-                #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).update_exact(query_doc, update_fn).await
-            }
-        }
-                impl #impl_generics #crate_name::QueryFor<#collection_types, Self> for #name_write #ty_generics #where_clause {
-                    fn query_for<'a>(&'a self) -> <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery<'a, Self> {
-                        <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery::new(&self)
-                    }
+            impl #impl_generics #crate_name::WriteQueryOperations<#collection_types> for #name_write #ty_generics #where_clause {
+                async fn find_exact(&self, query_doc: <#collection_types as #crate_name::Queryable>::DocumentQuery) -> #crate_name::result::Result<Option<#collection_types>> {
+                    #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).find_exact(query_doc).await
                 }
-            )*
+
+                async fn delete_exact(&self, query_doc: <#collection_types as #crate_name::Queryable>::DocumentQuery) -> #crate_name::result::Result<Option<#collection_types>> {
+                    #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).delete_exact(query_doc).await
+                }
+
+                async fn update_exact(
+                    &self,
+                    query_doc: <#collection_types as #crate_name::Queryable>::DocumentQuery,
+                    update_fn: impl FnOnce(#collection_types) -> #collection_types,
+                ) -> #result_type<bool> {
+                    #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).update_exact(query_doc, update_fn).await
+                }
+
+                async fn update_exact_or_insert(
+                    &self,
+                    query_doc: <#collection_types as #crate_name::Queryable>::DocumentQuery,
+                    update_fn: impl FnOnce(Option<#collection_types>) -> #collection_types,
+                ) -> #result_type<()> {
+                    #crate_name::CollectionWrite::new(&self.db.#collection_names, &self.tx).update_exact_or_insert(query_doc, update_fn).await
+                }
+            }
+
+            impl #impl_generics #crate_name::QueryFor<#collection_types, Self> for #name_write #ty_generics #where_clause {
+                fn query_for<'a>(&'a self) -> <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery<'a, Self> {
+                    <#collection_types as #crate_name::Queryable>::RunnableDocumentQuery::new(&self)
+                }
+            }
+        )*
 
         const _: fn() = || {
             fn assert_impl<#name: Clone>() {}

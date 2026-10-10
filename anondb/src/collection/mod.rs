@@ -56,6 +56,11 @@ pub trait WriteQueryOperations<T: CollectionDocument> {
         &self,
         query_doc: <T as Queryable>::DocumentQuery,
     ) -> impl Future<Output = Result<Option<T>>>;
+    fn update_exact_or_insert(
+        &self,
+        query_doc: <T as Queryable>::DocumentQuery,
+        update_fn: impl FnOnce(Option<T>) -> T,
+    ) -> impl Future<Output = Result<()>>;
 }
 
 #[derive(Debug, Clone)]
@@ -472,6 +477,18 @@ impl<T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T> for Collect
         let tx = self.kv.write_tx().await?;
         let write = CollectionWrite::new(&self, &tx);
         let out = write.delete_exact(query_doc).await?;
+        tx.commit().await?;
+        Ok(out)
+    }
+
+    async fn update_exact_or_insert(
+        &self,
+        query_doc: <T as Queryable>::DocumentQuery,
+        update_fn: impl FnOnce(Option<T>) -> T,
+    ) -> Result<()> {
+        let tx = self.kv.write_tx().await?;
+        let write = CollectionWrite::new(&self, &tx);
+        let out = write.update_exact_or_insert(query_doc, update_fn).await?;
         tx.commit().await?;
         Ok(out)
     }

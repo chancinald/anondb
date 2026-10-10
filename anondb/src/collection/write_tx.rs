@@ -219,4 +219,19 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
             Ok(false)
         }
     }
+
+    async fn update_exact_or_insert(
+        &self,
+        query_doc: <T as Queryable>::DocumentQuery,
+        update_fn: impl FnOnce(Option<T>) -> T,
+    ) -> Result<()> {
+        let doc_maybe = self.find_exact(query_doc).await?;
+        let doc = update_fn(doc_maybe);
+        let (key, value) = self.collection.primary_index.serialize_key_doc(&doc)?;
+        self.tx.insert(self.collection.name(), &key, &value).await?;
+        for index in self.collection.indices.iter() {
+            index.insert(self.tx.as_ref(), &doc, &key).await?;
+        }
+        Ok(())
+    }
 }

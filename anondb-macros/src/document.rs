@@ -277,17 +277,17 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                 }
             )*
 
-            pub async fn find_exact(self
-            ) -> #result_type<Option<#name>> {
+            pub async fn find_exact(self) -> #result_type<Option<#name>> {
                 self.provider.find_exact(self.query).await
             }
-            pub async fn delete_exact(self
-            ) -> #result_type<Option<#name>> {
+            pub async fn delete_exact(self) -> #result_type<Option<#name>> {
                 self.provider.delete_exact(self.query).await
             }
-            pub async fn update_exact(self, f: impl FnOnce(#name) -> #name
-            ) -> #result_type<bool> {
+            pub async fn update_exact(self, f: impl FnOnce(#name) -> #name) -> #result_type<bool> {
                 self.provider.update_exact(self.query, f).await
+            }
+            async fn update_exact_or_insert(self, update_fn: impl FnOnce(Option<#name>) -> #name) -> #result_type<()> {
+                self.provider.update_exact_or_insert(self.query, update_fn).await
             }
         }
         impl <'a, P: #crate_name::QueryOperations<#name> + Send + Sync + 'a> #runnable_query_struct_name<'a, P> {

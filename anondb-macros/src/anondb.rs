@@ -15,6 +15,7 @@ struct FieldMeta {
     indices: Vec<IndexDef>,
     /// The document type stored in this field's collection (the generic arg of `Collection<T>`).
     doc_generic: Type,
+    migrations_maybe: Option<Ident>,
 }
 
 /// Add functions for initializing the KV for a database, and providing references to the KV to all
@@ -34,13 +35,14 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             .clone();
         assert_no_generics(&doc_generic)?;
         let field_ident = field.ident.clone().expect("expected field ident to exist");
-        let (primary_key_index, indices) = parse_attributes(field)?;
+        let (primary_key_index, indices, migrations_maybe) = parse_attributes(field)?;
         field_meta.insert(
             field_ident,
             FieldMeta {
                 primary_key_index,
                 indices,
                 doc_generic,
+                migrations_maybe,
             },
         );
     }
@@ -69,14 +71,24 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
             .iter()
             .enumerate()
             .map(|(i, v)| v.generate_index_constructor(collection_name, doc_generic, Some(i)));
+        let migrations_maybe = if let Some(migrations) = meta.migrations_maybe.as_ref() {
+            quote! {
+                Some(#migrations)
+            }
+        } else {
+            quote! {
+                None
+            }
+        };
         quote! {
             #collection_name: #crate_name::Collection::new(
                 kv.clone(),
                 stringify!(#collection_name).into(),
-                #primary_index ,
+                #primary_index,
                 vec![
                     #(#indices)*
-                ]
+                ],
+                #migrations_maybe
             ).await?,
         }
     });
@@ -216,32 +228,29 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
 }
 
 /// For all the collections in the db, extract primary_key and index attributes.
-fn parse_attributes(field: Field) -> Result<(IndexDef, Vec<IndexDef>)> {
+fn parse_attributes(field: Field) -> Result<(IndexDef, Vec<IndexDef>, Option<Ident>)> {
     let mut primary_key_maybe: Option<IndexDef> = None;
     let mut indices = Vec::default();
+    let mut migrations_maybe = None;
     for attr in field.attrs.iter() {
         if !attr.path().is_ident("anondb") {
             continue;
         }
-        let index_def = attr.parse_args::<IndexDef>()?;
-        match index_def.index_type {
-            IndexType::Primary => {
-                if !index_def.options.is_empty() {
-                    return Err(Error::new_spanned(
-                        attr,
-                        "AnonDB primary_key attribute does not support options",
-                    ));
-                }
-                if primary_key_maybe.is_some() {
-                    return Err(Error::new(
-                        attr.span(),
-                        "Primary key may be specified only once!",
-                    ));
-                }
-                primary_key_maybe = Some(index_def);
+        match attr.parse_args::<CollectionAttr>()? {
+            CollectionAttr::Index(index) => {
+                indices.push(index);
             }
-            IndexType::Normal => {
-                indices.push(index_def);
+            CollectionAttr::PrimaryKey(index) => {
+                if primary_key_maybe.is_some() {
+                    return Err(Error::new(attr.span(), "duplicate primary key definition"));
+                }
+                primary_key_maybe = Some(index);
+            }
+            CollectionAttr::Migrations(migrations) => {
+                if migrations_maybe.is_some() {
+                    return Err(Error::new(attr.span(), "duplicate migrations definition"));
+                }
+                migrations_maybe = Some(migrations);
             }
         }
     }
@@ -254,7 +263,7 @@ fn parse_attributes(field: Field) -> Result<(IndexDef, Vec<IndexDef>)> {
             ),
         )
     })?;
-    Ok((primary_key, indices))
+    Ok((primary_key, indices, migrations_maybe))
 }
 
 /// Extract the generic for the database structure. This generic represents the KV implementation.

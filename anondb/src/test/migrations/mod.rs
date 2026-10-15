@@ -21,26 +21,19 @@ impl Default for TestDocumentV0 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
-#[document(migrations = migrations1)]
 pub struct TestDocumentV1 {
     pub id0: u128,
     pub id1: u128,
     pub id2: u128,
 }
-fn migrations1<'a>() -> &'static [fn(
-    Vec<(String, Vec<u8>)>,
-    Vec<String>,
-    Vec<u8>,
-) -> Result<
-    (Vec<(String, Vec<u8>)>, Vec<String>, Vec<u8>),
-    MigrationError,
->] {
-    &[|key_values, value_fields, bytes| {
-        Ok((
-            key_values,
-            value_fields,
-            vec![bytes, postcard::to_stdvec(&999u128).unwrap()].concat(),
-        ))
+fn migrations1() -> &'static [fn(Vec<u8>, Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), MigrationError>] {
+    &[|key, value| {
+        let id0: u128 = LexicographicKey::from(key).take().unwrap();
+        let id1: u128 = postcard::from_bytes(&value)?;
+        let mut key = LexicographicKey::default();
+        key.append(&id0);
+        key.append(&id1);
+        Ok((key.into_vec(), postcard::to_stdvec(&999u128)?))
     }]
 }
 
@@ -49,7 +42,7 @@ async fn migration_add_field() -> Result<()> {
     let db_path = {
         #[derive(Clone, AnonDB)]
         pub struct DB1<K: KV> {
-            #[anondb(primary_key = id0, id1)]
+            #[anondb(primary_key = id0)]
             pub test: Collection<TestDocumentV0, K>,
         }
         let db = DB1::<RedbKV>::new(None).await?;
@@ -61,6 +54,7 @@ async fn migration_add_field() -> Result<()> {
     #[derive(Clone, AnonDB)]
     pub struct DB<K: KV> {
         #[anondb(primary_key = id0, id1)]
+        #[anondb(migrations = migrations1)]
         pub test: Collection<TestDocumentV1, K>,
     }
     let db = DB::<RedbKV>::new(Some(Box::new(db_path))).await?;

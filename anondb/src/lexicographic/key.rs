@@ -1,4 +1,4 @@
-use super::SerializeLexicographic;
+use super::*;
 
 /// A vector of bytes representing a lexicographically sortable set of keys. Each key is separated
 /// by a byte 0x00 to allow partial index searches.
@@ -80,6 +80,32 @@ impl LexicographicKey {
     pub fn into_vec(self) -> Vec<u8> {
         self.bytes
     }
+
+    /// Attempt to deserialize a type from the bytes
+    pub fn take<T: DeserializeLexicographic>(&mut self) -> anyhow::Result<T> {
+        if self.bytes.is_empty() {
+            anyhow::bail!("no more bytes in key")
+        }
+        if let Some(width) = T::FIXED_WIDTH {
+            if width as usize > self.bytes.len() {
+                anyhow::bail!(
+                    "not enough bytes remaining for type, need {width}, have {}",
+                    self.bytes.len()
+                )
+            }
+            let mut bytes = self.bytes.split_off(width as usize);
+            std::mem::swap(&mut bytes, &mut self.bytes);
+            if !self.bytes.is_empty() {
+                // remove the separator byte
+                if self.bytes.remove(0) != 0 {
+                    anyhow::bail!("bad separator byte in key vector")
+                }
+            }
+            T::from_bytes(&bytes)
+        } else {
+            T::from_bytes(&self.bytes)
+        }
+    }
 }
 
 impl FromIterator<Vec<u8>> for LexicographicKey {
@@ -89,6 +115,12 @@ impl FromIterator<Vec<u8>> for LexicographicKey {
             key.append_key_vec(v);
         }
         key
+    }
+}
+
+impl From<Vec<u8>> for LexicographicKey {
+    fn from(value: Vec<u8>) -> Self {
+        Self { bytes: value }
     }
 }
 

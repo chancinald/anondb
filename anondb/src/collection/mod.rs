@@ -69,6 +69,7 @@ pub struct Collection<T: CollectionDocument, K: KV> {
     name: String,
     indices: Vec<Index<T>>,
     primary_index: PrimaryIndex<T>,
+    migrations: &'static [fn(Vec<u8>, Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), MigrationError>],
 }
 
 impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
@@ -77,6 +78,9 @@ impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
         name: String,
         primary_index: PrimaryIndex<T>,
         indices: Vec<Index<T>>,
+        migrations_maybe: Option<
+            fn() -> &'static [fn(Vec<u8>, Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), MigrationError>],
+        >,
     ) -> Result<Self> {
         if name.contains(NAME_SEPARATOR) {
             anyhow::bail!(
@@ -88,6 +92,7 @@ impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
             name,
             primary_index,
             indices,
+            migrations: migrations_maybe.map(|v| v()).unwrap_or_default(),
         }
         .migrate_if_needed()
         .await
@@ -119,7 +124,7 @@ impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
         let metatable = self.metatable();
         // version is determined by number of migrations defined
         // this is the version of our implementation
-        let doc_version = T::migrations().len() as u32;
+        let doc_version = self.migrations.len() as u32;
         log::info!("document impl version: {}", doc_version);
         let existing_description =
             if let Some(item) = self.kv.get(&metatable, DESCRIPTION_KEY).await? {
@@ -166,72 +171,19 @@ impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
             for index in &self.indices {
                 assert_eq!(write_tx.count(index.kv_table_name()).await?, 0);
             }
-            let value_fields = existing_description
-                .fields
-                .iter()
-                .filter_map(|(name, _)| {
-                    if existing_description
-                        .primary_key_fields
-                        .iter()
-                        .find(|v| &v.0 == name)
-                        .is_none()
-                    {
-                        Some(name.to_string())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>();
             let out = read_tx.range(&self.name, ..).await?;
             let mut stream = std::pin::pin!(out);
             while let Some(item) = stream.next().await.transpose()? {
-                let mut key = item.key();
-                let mut value = item.value().await;
-                let mut values = Vec::with_capacity(existing_description.fields.len());
-                for (name, stats) in existing_description.primary_key_fields.iter() {
-                    let len = if let Some(len) = stats.fixed_width {
-                        len as usize
-                    } else {
-                        let (len, rem) = postcard::take_from_bytes::<'_, u64>(value)?;
-                        value = rem;
-                        len as usize
-                    };
-                    let (v, rem) = key.split_at(len);
-                    if rem.is_empty() {
-                        key = rem;
-                    } else {
-                        let (sep, rem) = rem.split_at(1);
-                        assert_eq!(sep[0], 0);
-                        key = rem;
-                    }
-                    values.push((name.to_string(), v.to_vec()));
-                }
-
-                let mut state = (values, value_fields.clone(), value.to_vec());
+                let key = item.key();
+                let value = item.value().await;
+                let mut state = (key.to_vec(), value.to_vec());
                 for i in existing_description.version..doc_version {
-                    state = T::migrations()[i as usize](state.0, state.1, state.2)?;
+                    state = match (self.migrations[i as usize])(state.0, state.1) {
+                        Ok(v) => v,
+                        Err(e) => anyhow::bail!("migration error: {e}"),
+                    };
                 }
-                if self.primary_index.fields().len() != state.0.len() {
-                    anyhow::bail!("key field length mismatch")
-                }
-                let key_fields = self
-                    .primary_index
-                    .fields()
-                    .iter()
-                    .zip(state.0.into_iter())
-                    .map(|(i, v)| {
-                        if i.0 != v.0 {
-                            anyhow::bail!(
-                                "primary key field name mismatch. expected \"{}\", got \"{}\"",
-                                i.0,
-                                v.0
-                            )
-                        }
-                        Ok(v.1)
-                    })
-                    .collect::<Result<LexicographicKey>>()?
-                    .into_vec();
-                let new_doc = self.primary_index.deserialize(&key_fields, &state.2)?;
+                let new_doc = self.primary_index.deserialize(&state.0, &state.1)?;
                 // TODO: perhaps don't fail if indices conflict in production
                 // fall back to non-accelerated queries to prevent application crashes
                 // always fail fast during development

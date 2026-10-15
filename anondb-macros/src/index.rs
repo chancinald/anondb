@@ -8,6 +8,92 @@ use syn::parse::ParseStream;
 use syn::punctuated::Punctuated;
 use syn::*;
 
+pub enum CollectionAttr {
+    PrimaryKey(IndexDef),
+    Index(IndexDef),
+    Migrations(Ident),
+}
+
+fn check_unique(v: &Vec<Ident>) -> Option<Ident> {
+    let mut fields_set = HashSet::<String>::default();
+    for field in v.iter() {
+        if !fields_set.insert(field.to_string()) {
+            return Some(field.clone());
+        }
+    }
+    None
+}
+
+impl Parse for CollectionAttr {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let keyword = input.parse::<Ident>()?;
+        input.parse::<Token![=]>()?;
+        match keyword.to_string().as_str() {
+            "primary_key" => {
+                // if primary_key_maybe.is_some() {
+                //     return Err(Error::new(input.span(), "duplicate primary key definition"));
+                // }
+                let field_list = Punctuated::<Ident, Token![,]>::parse_separated_nonempty(input)?;
+                let fields: Vec<Ident> = field_list.into_iter().collect();
+                if let Some(field) = check_unique(&fields) {
+                    return Err(Error::new(
+                        field.span(),
+                        format!("index contains duplicate field: {}", field),
+                    ));
+                }
+                Ok(Self::PrimaryKey(IndexDef {
+                    index_type: IndexType::Primary,
+                    fields,
+                    options: Default::default(),
+                }))
+            }
+            "index" => {
+                let field_list = Punctuated::<Ident, Token![,]>::parse_separated_nonempty(input)?;
+                let fields: Vec<Ident> = field_list.into_iter().collect();
+                if let Some(field) = check_unique(&fields) {
+                    return Err(Error::new(
+                        field.span(),
+                        format!("index contains duplicate field: {}", field),
+                    ));
+                }
+                let mut options = HashMap::default();
+
+                if input.peek(Token![;]) {
+                    input.parse::<Token![;]>()?;
+
+                    // Parse comma-separated key=value pairs
+                    let option_list =
+                        Punctuated::<(Ident, LitBool), Token![,]>::parse_separated_nonempty_with(
+                            input,
+                            |input| {
+                                let key: Ident = input.parse()?;
+                                input.parse::<Token![=]>()?;
+                                let value: LitBool = input.parse()?;
+                                Ok((key, value))
+                            },
+                        )?;
+
+                    for (key, value) in option_list {
+                        options.insert(key, value.value);
+                    }
+                }
+                Ok(Self::Index(IndexDef {
+                    index_type: IndexType::Normal,
+                    fields,
+                    options,
+                }))
+            }
+            "migrations" => Ok(Self::Migrations(input.parse::<Ident>()?)),
+            _ => Err(syn::Error::new(
+                keyword.span(),
+                format!(
+                    "bad AnonDB keyword, expected \"primary_key\", \"index\", or \"migrations\" got: \"{keyword}\""
+                ),
+            )),
+        }
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub enum IndexType {
     Primary,

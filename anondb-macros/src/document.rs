@@ -147,36 +147,6 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
         .collect::<Result<Vec<FieldDef>>>()?;
     let field_count = fields.len();
 
-    let mut migrations_fn_maybe = None;
-    for attr in input.attrs.iter() {
-        if !attr.path().is_ident("document") {
-            continue;
-        }
-        attr.parse_nested_meta(|meta| {
-            if meta.path.is_ident("migrations") {
-                if migrations_fn_maybe.is_some() {
-                    return Err(syn::Error::new(
-                        meta.path.span(),
-                        "duplicate document migrations definition!",
-                    ));
-                }
-                let fn_name = meta.value()?.parse::<syn::Path>()?;
-                migrations_fn_maybe = Some(quote! {
-                    fn migrations<'a>() -> &'static [fn(
-                        Vec<(String, Vec<u8>)>,
-                        Vec<String>,
-                        Vec<u8>
-                    ) ->
-                            #crate_name::result::Result<(Vec<(String, Vec<u8>)>, Vec<String>, Vec<u8>),
-                            #crate_name::MigrationError>] {
-                        #fn_name ()
-                    }
-                });
-            }
-            Ok(())
-        })?;
-    }
-
     let skipped_fields = fields.iter().filter(|f| f.attrs.is_skip).map(|f| {
         let name = &f.name;
         let func = f
@@ -418,10 +388,6 @@ pub fn derive(input: DeriveInput) -> Result<TokenStream> {
                     ]);
                 V.as_ref()
             }
-        }
-
-        impl #impl_generics #crate_name::Migrateable for #name #ty_generics #where_clause {
-            #migrations_fn_maybe
         }
 
         #[derive(Debug, Default)]

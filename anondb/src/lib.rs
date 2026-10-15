@@ -45,8 +45,7 @@ pub use postcard;
 
 pub(crate) const NAME_SEPARATOR: &'static str = "___";
 
-pub trait CollectionDocument:
-    Clone + Queryable + AnyDocument + ParseableDocument + Migrateable
+pub trait CollectionDocument: Clone + Queryable + AnyDocument + ParseableDocument
 where
     Self: Sized + 'static,
 {
@@ -113,33 +112,20 @@ pub trait ParseableDocument {
     ) -> anyhow::Result<std::collections::BTreeMap<String, (String, Box<dyn ValidDBType>)>>;
 }
 
-pub trait Migrateable {
-    fn migrations<'a>() -> &'static [fn(
-        Vec<(String, Vec<u8>)>,
-        Vec<String>,
-        Vec<u8>,
-    ) -> Result<
-        (Vec<(String, Vec<u8>)>, Vec<String>, Vec<u8>),
-        MigrationError,
-    >] {
-        &[]
-    }
-}
-
 /// A trait for handling changes to a database schema.
 #[derive(Debug)]
 pub struct MigrationError {
     message: String,
 }
-
 impl Display for MigrationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.message.as_str())
     }
 }
-
-impl std::error::Error for MigrationError {
-    fn description(&self) -> &str {
-        self.message.as_str()
+impl<T: std::error::Error> From<T> for MigrationError {
+    fn from(value: T) -> Self {
+        MigrationError {
+            message: value.to_string(),
+        }
     }
 }

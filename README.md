@@ -7,7 +7,7 @@ An embedded document oriented NoSQL database implemented over a generic KV trait
 
 ### Database
 
-Each `database` contains `collections` of `documents`. Each `document` is `Serialize + Deserialize`. Each collection may specify `indices`. Each `index` specifies 1 or more field names from the `document`. Each `field` in an `index` must by a type that implements `SerializeLexicographic` (implementations are provided for most types).
+Each `database` contains `collections` of `documents`. Each collection may specify `indices`. Each `index` specifies 1 or more field names from the `document`. Each `field` in an `index` must by a type that implements `SerializeLexicographic` (implementations are provided for most types).
 
 Each `database` is generic over a trait `KV`, which abstracts a key-value store. Each kv has `tables` containing keys and values.
 
@@ -17,20 +17,18 @@ The schema is statically defined and verifiable using structs, derive macros and
 
 ```rs
 use anondb::AnonDB;
+use anondb::Collection;
 use anondb::Document;
 use anondb::KV;
-use anondb::Collection;
-use serde::Serialize;
-use serde::Deserialize;
 
-#[derive(Serialize, Deserialize, Document)]
+#[derive(Clone, Document)]
 pub struct User {
     pub id: u128,
     pub name: String,
     pub created_at: u64
 }
 
-#[derive(Serialize, Deserialize, Document)]
+#[derive(Clone, Document)]
 pub struct Post {
     pub id: u128,
     pub creator_id: u128,
@@ -39,7 +37,7 @@ pub struct Post {
     pub created_at: u64,
 }
 
-#[derive(AnonDB)]
+#[derive(Clone, AnonDB)]
 pub struct DB<K: KV> {
     #[anondb(primary_key = id)]
     #[anondb(index = name; unique = true)]
@@ -79,14 +77,14 @@ The `Document` derive macro implements traits for statically analyzable queries.
 
 ```rs
 
-#[derive(Serialize, Deserialize, Document)]
+#[derive(Clone, Document)]
 pub struct User {
     pub id: u128,
     pub name: String,
     pub created_at: u64
 }
 
-#[derive(AnonDB)]
+#[derive(Clone, AnonDB)]
 pub struct DB<K: KV> {
     #[anondb(primary_key = id)]
     #[anondb(index = name; unique = true)]
@@ -94,7 +92,7 @@ pub struct DB<K: KV> {
     pub users: Collection<User, K>,
 }
 
-let db = DB::<RedbKV>::in_memory(None)?;
+let db = DB::<MemoryKV>::new(None)?;
 
 let bob_user = User {
   id: rand::random(),
@@ -102,17 +100,23 @@ let bob_user = User {
   created_at: timestamp()
 };
 
-db.users.insert(&bob_user)?;
+db.users.insert(&bob_user).await?;
 
-{
-    let query = User::query().name("alice");
-    let alice_maybe: Option<User> = db.users.find_one(query)?;
-}
+let alice_maybe: Option<User> = db
+    .users
+    .query()
+    .name("alice".to_string())
+    .find_one()
+    .await?;
 
-{
-    let query = User::query().created_at(1761000295..1761200295);
-    let recent_users: Vec<User> = db.users.find_many(query)?;
-}
+let recent_users: Vec<User> = db
+    .users
+    .query()
+    .created_at(1761000295..1761200295)
+    .find_many(query)
+    .await?
+    .try_collect()
+    .await?;
 
 ```
 

@@ -169,7 +169,11 @@ impl<T: CollectionDocument + 'static, K: KV> Collection<T, K> {
             write.clear().await?;
             assert_eq!(write_tx.count(&self.name).await?, 0);
             for index in &self.indices {
-                assert_eq!(write_tx.count(index.kv_table_name()).await?, 0);
+                if index.options().unique {
+                    assert_eq!(write_tx.count(index.kv_table_name()).await?, 0);
+                } else {
+                    assert_eq!(write_tx.count_multimap(index.kv_table_name()).await?, 0);
+                }
             }
             let out = read_tx.range(&self.name, ..).await?;
             let mut stream = std::pin::pin!(out);

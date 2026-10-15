@@ -135,7 +135,11 @@ where
         &'a self,
         tx: &'a (impl ReadOperations + WriteOperations),
     ) -> Result<()> {
-        tx.clear(&self.kv_table_name).await?;
+        if self.options.unique {
+            tx.clear(&self.kv_table_name).await?;
+        } else {
+            tx.clear_multimap(&self.kv_table_name).await?;
+        }
         Ok(())
     }
 

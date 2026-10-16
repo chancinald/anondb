@@ -42,9 +42,10 @@ pub struct MemoryKV {
         )>,
     >,
     /// The canonical KV data. This lock is distinct from the snapshot.
-    tables: Arc<RwLock<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>>,
+    pub(crate) tables: Arc<RwLock<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>>,
     /// Multimap tables
-    tables_multi: Arc<RwLock<HashMap<String, RedBlackTreeMapSync<Vec<u8>, HashSet<Vec<u8>>>>>>,
+    pub(crate) tables_multi:
+        Arc<RwLock<HashMap<String, RedBlackTreeMapSync<Vec<u8>, HashSet<Vec<u8>>>>>>,
 }
 
 impl MemoryKV {
@@ -90,6 +91,7 @@ impl KV for MemoryKV {
         Ok(MemoryKVWriteTransaction::new(
             tables_lock,
             tables_multi_lock,
+            self.tables_snapshot.clone(),
         ))
     }
 
@@ -150,54 +152,33 @@ impl WriteOperations for MemoryKV {
         Ok(())
     }
 
+    // Writes outside a transaction still go through one, so the read snapshot is kept
+    // current on commit.
+
     async fn insert(&self, table: &str, key: &[u8], value: &[u8]) -> Result<Option<Vec<u8>>> {
-        let mut tables = self.tables.write().await;
-        let table = tables.entry(table.into()).or_default();
-        Ok(if let Some(val) = table.get_mut(key) {
-            let mut out = value.to_vec();
-            std::mem::swap(val, &mut out);
-            Some(out)
-        } else {
-            table.insert_mut(key.into(), value.into());
-            None
-        })
+        let tx = self.write_tx().await?;
+        let out = tx.insert(table, key, value).await?;
+        tx.commit().await?;
+        Ok(out)
     }
 
     async fn remove(&self, table: &str, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        match self.tables.write().await.get_mut(table) {
-            Some(table) => {
-                let prev = table.get(key).cloned();
-                table.remove_mut(key);
-                Ok(prev)
-            }
-            None => {
-                log::warn!("table \"{table}\" not found");
-                Ok(None)
-            }
-        }
+        let tx = self.write_tx().await?;
+        let out = tx.remove(table, key).await?;
+        tx.commit().await?;
+        Ok(out)
     }
 
     async fn rename_table(&self, table: &str, new_name: &str) -> Result<()> {
-        let mut tables = self.tables.write().await;
-        if let Some(table_data) = tables.remove(table) {
-            tables.insert(new_name.into(), table_data);
-            Ok(())
-        } else {
-            anyhow::bail!("table \"{table}\" not found");
-        }
+        let tx = self.write_tx().await?;
+        tx.rename_table(table, new_name).await?;
+        tx.commit().await
     }
 
     async fn insert_multimap(&self, table: &str, key: &[u8], value: &[u8]) -> Result<()> {
-        let mut tables_multi = self.tables_multi.write().await;
-        let tables = tables_multi.entry(table.to_string()).or_default();
-        if let Some(table) = tables.get_mut(key) {
-            table.insert(value.to_vec());
-        } else {
-            let mut set = HashSet::new();
-            set.insert(value.to_vec());
-            tables.insert_mut(key.to_vec(), set);
-        }
-        Ok(())
+        let tx = self.write_tx().await?;
+        tx.insert_multimap(table, key, value).await?;
+        tx.commit().await
     }
 
     async fn remove_multimap_value(&self, table: &str, key: &[u8], value: &[u8]) -> Result<bool> {

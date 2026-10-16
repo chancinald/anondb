@@ -12,6 +12,13 @@ pub struct MemoryKVWriteTransaction {
         OwnedRwLockWriteGuard<HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>>,
     pub(crate) tables_multi_lock:
         OwnedRwLockWriteGuard<HashMap<String, RedBlackTreeMapSync<Vec<u8>, HashSet<Vec<u8>>>>>,
+    /// The snapshot readers use while the tables are locked; updated on commit.
+    shared_snapshot: Arc<
+        RwLock<(
+            HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>,
+            HashMap<String, RedBlackTreeMapSync<Vec<u8>, HashSet<Vec<u8>>>>,
+        )>,
+    >,
 }
 
 impl MemoryKVWriteTransaction {
@@ -20,11 +27,18 @@ impl MemoryKVWriteTransaction {
         tables_multi_lock: OwnedRwLockWriteGuard<
             HashMap<String, RedBlackTreeMapSync<Vec<u8>, HashSet<Vec<u8>>>>,
         >,
+        shared_snapshot: Arc<
+            RwLock<(
+                HashMap<String, RedBlackTreeMapSync<Vec<u8>, Vec<u8>>>,
+                HashMap<String, RedBlackTreeMapSync<Vec<u8>, HashSet<Vec<u8>>>>,
+            )>,
+        >,
     ) -> Self {
         Self {
             tables_snapshot: Mutex::new((tables_lock.clone(), tables_multi_lock.clone())),
             tables_lock,
             tables_multi_lock,
+            shared_snapshot,
         }
     }
 }
@@ -168,6 +182,10 @@ impl WriteTx for MemoryKVWriteTransaction {
     type Item<'tx> = MemoryKVItem;
     async fn commit(mut self) -> Result<()> {
         let snapshot = self.tables_snapshot.into_inner();
+        // Readers fall back to the shared snapshot while the tables are locked, which
+        // includes the window where the next writer has locked them but not yet refreshed
+        // it. Update it before releasing the tables so committed data is always visible.
+        *self.shared_snapshot.write().await = (snapshot.0.clone(), snapshot.1.clone());
         *self.tables_lock = snapshot.0;
         *self.tables_multi_lock = snapshot.1;
         Ok(())

@@ -249,3 +249,28 @@ fn concurrent_write_tx_redb() {
         futures::executor::block_on(RedbKV::new(Some(Box::new(path)))).unwrap()
     });
 }
+
+/// A committed write must be visible to new reads even while the next writer is halfway
+/// through starting its transaction (holding the tables but not yet the read snapshot).
+#[tokio::test(flavor = "multi_thread")]
+async fn memory_kv_commit_visible_while_next_writer_starts() -> Result<()> {
+    let kv = MemoryKV::default();
+    let tx = kv.write_tx().await?;
+    tx.insert("table", b"key", b"value").await?;
+    tx.commit().await?;
+
+    // holding the multimap tables stops the next writer after it locks the main tables
+    let multi_guard = kv.tables_multi.clone().read_owned().await;
+    let writer = tokio::spawn({
+        let kv = kv.clone();
+        async move { kv.write_tx().await.map(|_| ()) }
+    });
+    while kv.tables.try_read().is_ok() {
+        tokio::task::yield_now().await;
+    }
+    let value = kv.read_tx().await?.get("table", b"key").await?;
+    drop(multi_guard);
+    writer.await??;
+    assert_eq!(value.map(|item| item.value), Some(b"value".to_vec()));
+    Ok(())
+}

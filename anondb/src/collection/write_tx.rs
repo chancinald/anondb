@@ -191,46 +191,52 @@ impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>
 
     async fn delete_exact(&self, query_doc: <T as Queryable>::DocumentQuery) -> Result<Option<T>> {
         if let Some(doc) = self.find_exact(query_doc).await? {
-            let key = self.collection.primary_index.serialize_key(&doc)?;
-            self.tx.remove(self.collection.name(), &key).await?;
-            for index in self.collection.indices.iter() {
-                index.delete(self.tx.as_ref(), &doc, &key).await?;
-            }
+            self.remove_document(&doc).await?;
             Ok(Some(doc))
         } else {
             Ok(None)
         }
     }
 
+    /// The old document is removed before the updated one is inserted, so changing indexed
+    /// fields or the primary key leaves no stale entries, and uniqueness is checked against
+    /// the updated document.
     async fn update_exact(
         &self,
         query_doc: <T as Queryable>::DocumentQuery,
         update_fn: impl FnOnce(T) -> T,
     ) -> Result<bool> {
         if let Some(doc) = self.find_exact(query_doc).await? {
-            let doc = update_fn(doc);
-            let (key, value) = self.collection.primary_index.serialize_key_doc(&doc)?;
-            self.tx.insert(self.collection.name(), &key, &value).await?;
-            for index in self.collection.indices.iter() {
-                index.insert(self.tx.as_ref(), &doc, &key).await?;
-            }
+            self.remove_document(&doc).await?;
+            self.insert(update_fn(doc)).await?;
             Ok(true)
         } else {
             Ok(false)
         }
     }
 
+    /// Like [`update_exact`](Self::update_exact) if a document matches, otherwise inserts
+    /// the document returned by `update_fn`, failing if it violates a uniqueness constraint.
     async fn update_exact_or_insert(
         &self,
         query_doc: <T as Queryable>::DocumentQuery,
         update_fn: impl FnOnce(Option<T>) -> T,
     ) -> Result<()> {
         let doc_maybe = self.find_exact(query_doc).await?;
-        let doc = update_fn(doc_maybe);
-        let (key, value) = self.collection.primary_index.serialize_key_doc(&doc)?;
-        self.tx.insert(self.collection.name(), &key, &value).await?;
+        if let Some(doc) = doc_maybe.as_ref() {
+            self.remove_document(doc).await?;
+        }
+        self.insert(update_fn(doc_maybe)).await
+    }
+}
+
+impl<'a, T: CollectionDocument + 'static, K: KV> CollectionWrite<'a, T, K> {
+    /// Remove a stored document and all of its index entries.
+    async fn remove_document(&self, doc: &T) -> Result<()> {
+        let key = self.collection.primary_index.serialize_key(doc)?;
+        self.tx.remove(self.collection.name(), &key).await?;
         for index in self.collection.indices.iter() {
-            index.insert(self.tx.as_ref(), &doc, &key).await?;
+            index.delete(self.tx.as_ref(), doc, &key).await?;
         }
         Ok(())
     }

@@ -199,3 +199,53 @@ async fn read_tx_consistent_over_write_multimap<T: KV>(handle: &T) -> Result<()>
 
     Ok(())
 }
+
+/// A second write transaction must wait without blocking the executor thread. On a single
+/// threaded runtime a blocking wait would stop the first transaction from ever finishing.
+fn concurrent_write_tx_on_single_thread<T: KV>(new_kv: impl FnOnce() -> T + Send + 'static) {
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        runtime.block_on(async move {
+            let kv = new_kv();
+            let first = kv.write_tx().await.unwrap();
+            let second = tokio::spawn({
+                let kv = kv.clone();
+                async move {
+                    let second = kv.write_tx().await.unwrap();
+                    second.insert("table", b"second", b"2").await.unwrap();
+                    second.commit().await.unwrap();
+                }
+            });
+            // let the second writer start waiting
+            tokio::task::yield_now().await;
+            first.insert("table", b"first", b"1").await.unwrap();
+            first.commit().await.unwrap();
+            second.await.unwrap();
+            assert_eq!(kv.count("table").await.unwrap(), 2);
+        });
+        done_tx.send(()).ok();
+    });
+    assert!(
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .is_ok(),
+        "write transactions deadlocked"
+    );
+}
+
+#[test]
+fn concurrent_write_tx_memory() {
+    concurrent_write_tx_on_single_thread(MemoryKV::default);
+}
+
+#[cfg(feature = "redb")]
+#[test]
+fn concurrent_write_tx_redb() {
+    concurrent_write_tx_on_single_thread(|| {
+        let path = std::env::temp_dir().join(format!("anondb-test-{}.redb", rand::random::<u64>()));
+        futures::executor::block_on(RedbKV::new(Some(Box::new(path)))).unwrap()
+    });
+}

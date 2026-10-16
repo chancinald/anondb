@@ -2,6 +2,9 @@ use super::*;
 
 pub struct RedbWriteTransaction {
     pub write: redb::WriteTransaction,
+    /// Held until the transaction commits or is dropped. Declared after `write` so an
+    /// uncommitted transaction is aborted before the next writer can start.
+    pub(crate) _write_guard: tokio::sync::OwnedMutexGuard<()>,
 }
 
 impl WriteTx for RedbWriteTransaction {

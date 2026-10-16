@@ -27,6 +27,11 @@ use super::*;
 pub struct RedbKV {
     db: Arc<Database>,
     path: PathBuf,
+    /// redb allows one write transaction at a time and `begin_write` blocks the thread until
+    /// the previous one finishes. Write transactions live across awaits, so waiting there
+    /// could stall the executor (or deadlock a single threaded one). Waiting on this lock
+    /// instead yields, and `begin_write` then never blocks.
+    write_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl RedbKV {
@@ -66,12 +71,15 @@ impl KV for RedbKV {
                 .with_context(|| "initializing anondb Redb kv backend")?,
             ),
             path: path.to_path_buf(),
+            write_lock: Default::default(),
         })
     }
 
     async fn write_tx(&self) -> Result<Self::WriteTransaction> {
+        let write_guard = self.write_lock.clone().lock_owned().await;
         Ok(RedbWriteTransaction {
             write: self.db.begin_write()?,
+            _write_guard: write_guard,
         })
     }
 

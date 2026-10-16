@@ -102,3 +102,58 @@ async fn should_automatically_rebuild_indices() -> Result<()> {
 
     Ok(())
 }
+
+/// Queries fully matching a non-unique index read it through the multimap table.
+#[tokio::test]
+async fn should_query_non_unique_index() -> Result<()> {
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Document)]
+    pub struct Tagged {
+        pub id: u64,
+        pub tag: u64,
+        pub name: String,
+    }
+
+    #[derive(Debug, Clone, AnonDB)]
+    pub struct DB<K: KV> {
+        #[anondb(primary_key = id)]
+        #[anondb(index = tag)]
+        pub tagged: Collection<Tagged, K>,
+    }
+
+    async fn check<K: KV>(db: DB<K>) -> Result<()> {
+        for id in 0..10u64 {
+            db.tagged
+                .insert(Tagged {
+                    id,
+                    tag: id % 3,
+                    name: format!("doc {id}"),
+                })
+                .await?;
+        }
+        let mut found = db
+            .tagged
+            .find_many(Tagged::query().tag(1))
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        found.sort_by_key(|doc| doc.id);
+        assert_eq!(
+            found.iter().map(|doc| doc.id).collect::<Vec<_>>(),
+            vec![1, 4, 7]
+        );
+        // other query fields still filter the documents found through the index
+        let found = db
+            .tagged
+            .find_many(Tagged::query().tag(1).name("doc 4".to_string()))
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert_eq!(found.iter().map(|doc| doc.id).collect::<Vec<_>>(), vec![4]);
+        assert!(db.tagged.find_one(Tagged::query().tag(9)).await?.is_none());
+        Ok(())
+    }
+
+    check(DB::<MemoryKV>::new(None).await?).await?;
+    check(DB::<RedbKV>::new(None).await?).await?;
+    Ok(())
+}

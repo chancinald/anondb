@@ -153,9 +153,9 @@ where
         scan_range: GeneralRange<Vec<u8>>,
     ) -> Result<impl futures::Stream<Item = Result<T>> + Send + Sync + 'a> {
         Ok(async_stream::try_stream! {
-            let out = tx.range(&self.kv_table_name, scan_range).await?;
-            let mut stream = std::pin::pin!(out);
             if self.options.unique {
+                let out = tx.range(&self.kv_table_name, scan_range).await?;
+                let mut stream = std::pin::pin!(out);
                 while let Some(item) = stream.next().await.transpose()? {
                     let entry = tx.get(&self.collection_name, item.value().await)
                         .await?
@@ -169,22 +169,21 @@ where
                     }
                 }
             } else {
-                unimplemented!()
-                // tx.range_buffered_multimap(&table_name, scan_range.as_slice(), |_k, v, _done| {
-                //     // multimap index never stores full documents, always load from the primary table
-                //     let doc_bytes = tx.get(&self.collection_name, v)?.ok_or_else(|| {
-                //         anyhow::anyhow!(
-                //             "Index \"{table_name}\" referencing primary key that does not exist!"
-                //         )
-                //     })?;
-                //     // parse the bytes
-                //     let doc = rmp_serde::from_slice::<T>(&doc_bytes)?;
-                //     if doc.matches(query) {
-                //         Ok(Some(doc))
-                //     } else {
-                //         Ok(None)
-                //     }
-                // })?
+                // non-unique indices map each key to the primary keys of every matching document
+                let out = tx.range_multimap(&self.kv_table_name, scan_range).await?;
+                let mut stream = std::pin::pin!(out);
+                while let Some(item) = stream.next().await.transpose()? {
+                    let entry = tx.get(&self.collection_name, item.value().await)
+                        .await?
+                        .ok_or_else(|| anyhow::anyhow!(
+                            "Index \"{}\" referencing primary key that does not exist!",
+                            self.kv_table_name
+                        ))?;
+                    let doc = primary_index.deserialize(entry.key(), entry.value().await)?;
+                    if doc.matches(&query)? {
+                        yield doc;
+                    }
+                }
             }
         })
     }

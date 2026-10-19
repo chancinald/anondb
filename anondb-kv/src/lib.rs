@@ -1,3 +1,5 @@
+#[cfg(feature = "redb")]
+mod kv_any;
 mod kv_memory;
 #[cfg(feature = "redb")]
 mod kv_redb;
@@ -7,6 +9,8 @@ mod test;
 
 use std::ops::RangeBounds;
 
+#[cfg(feature = "redb")]
+pub use kv_any::*;
 pub use kv_memory::*;
 #[cfg(feature = "redb")]
 pub use kv_redb::*;

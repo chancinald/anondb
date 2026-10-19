@@ -180,6 +180,8 @@ async fn update_exact_replaces_index_entries() -> Result<()> {
     }
     check(IndexedDB::<MemoryKV>::new(None).await?).await?;
     check(IndexedDB::<RedbKV>::new(None).await?).await?;
+    check(IndexedDB::<AnyKV>::new(None).await?).await?;
+    check(IndexedDB::<AnyKV>::new(Some(temp_redb_config())).await?).await?;
     Ok(())
 }
 
@@ -207,5 +209,28 @@ async fn update_exact_or_insert_replaces_index_entries() -> Result<()> {
     }
     check(IndexedDB::<MemoryKV>::new(None).await?).await?;
     check(IndexedDB::<RedbKV>::new(None).await?).await?;
+    check(IndexedDB::<AnyKV>::new(None).await?).await?;
+    check(IndexedDB::<AnyKV>::new(Some(temp_redb_config())).await?).await?;
+    Ok(())
+}
+
+fn temp_redb_config() -> AnyKVConfig {
+    AnyKVConfig::Redb(Box::new(
+        std::env::temp_dir().join(format!("db-{}.redb", rand::random::<u128>())),
+    ))
+}
+
+#[tokio::test]
+async fn any_kv_redb_config_persists() -> Result<()> {
+    let config = temp_redb_config();
+    let doc = indexed(1, 7, "a");
+    {
+        let db = IndexedDB::<AnyKV>::new(Some(config.clone())).await?;
+        assert!(matches!(db.docs.kv(), AnyKV::Redb(_)));
+        db.docs.insert(&doc).await?;
+    }
+    let db = IndexedDB::<AnyKV>::new(Some(config)).await?;
+    assert_eq!(db.docs.query().id(1).find_exact().await?, Some(doc));
+    assert_eq!(tagged(&db, 7).await?, vec![1]);
     Ok(())
 }

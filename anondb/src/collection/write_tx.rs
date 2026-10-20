@@ -148,6 +148,13 @@ impl<'a, T: CollectionDocument + 'static, K: KV> CollectionWrite<'a, T, K> {
         }
         Ok(())
     }
+
+    pub fn with<'b, A: CollectionDocument>(
+        &'b self,
+        collection: &'b Collection<A, K>,
+    ) -> CollectionWrite<'b, A, K> {
+        CollectionWrite::new(collection, self.tx.borrow())
+    }
 }
 
 impl<'a, T: CollectionDocument + 'static, K: KV> WriteQueryOperations<T>

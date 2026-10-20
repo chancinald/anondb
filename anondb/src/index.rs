@@ -148,7 +148,7 @@ where
     pub(crate) async fn query<'a>(
         &'a self,
         primary_index: PrimaryIndex<T>,
-        tx: impl ReadOperations + RangeReadOperations + 'a,
+        tx: impl ReadOperations + RangeReadOperations + 'static,
         query: <T as Queryable>::DocumentQuery,
         scan_range: GeneralRange<Vec<u8>>,
     ) -> Result<impl futures::Stream<Item = Result<T>> + Send + Sync + 'a> {

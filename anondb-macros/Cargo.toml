@@ -2,7 +2,7 @@
 name = "anondb-macros"
 version = "0.2.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.90"
 license = "MIT OR Apache-2.0"
 description = "anondb proc macros"
 

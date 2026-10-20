@@ -42,6 +42,18 @@ pub enum AnyKVConfig {
     Redb(<RedbKV as KV>::Config),
 }
 
+impl From<<RedbKV as KV>::Config> for AnyKVConfig {
+    fn from(value: <RedbKV as KV>::Config) -> Self {
+        Self::Redb(value)
+    }
+}
+
+impl From<<MemoryKV as KV>::Config> for AnyKVConfig {
+    fn from(value: <MemoryKV as KV>::Config) -> Self {
+        Self::Memory(value)
+    }
+}
+
 pub enum AnyItem<'tx> {
     Memory(<MemoryKV as KV>::Item<'tx>),
     Redb(<RedbKV as KV>::Item<'tx>),
